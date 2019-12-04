@@ -53,7 +53,7 @@ class MidiPlayer:
         self.clock = pygame.time.Clock()
         self.hstream_handle = None
         self.track = None
-        self.sound_font = 'default.sf2'
+        self.sound_font = 'sound_fonts/default.sf2'
         self.playlist = []
         self.playlist_index = 0
         self.debug = False
@@ -105,19 +105,21 @@ class MidiPlayer:
     def load_sound_font(self):
         Tk().withdraw()
         new_sound_font = askopenfilename()
-
+        is_sound_font_coded = False
         if new_sound_font:
             if new_sound_font.find('.sfc', -4) > 5:
-                temp_soundfound_name = 'temp/101239987876.sf2'
-                uncoder = SoundCoder()
-                uncoder.decrypt_sound_found(new_sound_font, temp_soundfound_name)
-                new_sound_font = temp_soundfound_name
+                is_sound_font_coded = True
+                new_sound_font = SoundCoder().decrypt_sound_found_in_memory(new_sound_font)
+
             if new_sound_font.find('.sf2', -4) > 5:
                 sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(str(new_sound_font), 0), -1, 0)
-                if os.path.exists('temp/101239987876.sf2'): os.remove('temp/101239987876.sf2')
+
                 if self.hstream_handle is not None and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
                     BASS_MIDI_StreamSetFonts(self.hstream_handle, sound_font, 1)
                 BASS_MIDI_StreamSetFonts(0, sound_font, 1)
+
+            if is_sound_font_coded and os.path.exists(new_sound_font):
+                os.remove(new_sound_font)
 
     def toggle_piano_roll(self):
         print(self.window_size)
