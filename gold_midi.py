@@ -1,10 +1,9 @@
-import pygame, sys, os, time, ConfigParser
+import pygame, sys, os, time, ConfigParser, datetime
 from pybass import *
 from pybass.pybassmidi import *
 from encrypter import SoundCoder
 from Tkinter import Tk
 from tkFileDialog import askopenfilename
-
 
 config = ConfigParser.RawConfigParser()
 config.read('config.cfg')
@@ -33,12 +32,13 @@ class App:
             self.interface.left_click_pressed(x, y)
         elif pygame.mouse.get_pressed()[2]:
             print(pygame.event.get())
-        """"""
+
         self.refresh_screen()
 
     def refresh_screen(self):
         self.screen.fill((0, 0, 0))
         to_render = self.interface.refresh_screen()
+
         for element in to_render:
             self.screen.blit(element[0], element[1])
         pygame.display.update()
@@ -50,14 +50,14 @@ class MidiPlayer:
 
         self.buttons = []
         self.gui = []
+        self.dynamic_texts = []
         self.clock = pygame.time.Clock()
         self.hstream_handle = None
         self.track = None
         self.sound_font = 'sound_fonts/default.sf2'
-        self.playlist = []
-        self.playlist_index = 0
-        self.debug = False
+        self.playlist = Playlist()
         self.window_size = None
+        self.active_screen = 'main'
 
         """
         Loading a default sound font
@@ -74,20 +74,96 @@ class MidiPlayer:
 
     def draw_main_screen(self):
         self.gui = [
-            Image('background', (0, 0)).create_image()
+            Image('background', (0, 0)).create_image(),
+            Text('MIDI Name', (0, 0)).create_text(),
+            Text('MIDI Time',  (0, 20)).create_text(),
+            Text('Timecode', (0, 40)).create_text()
         ]
         self.buttons = [
-            Button('play', (700, 8), (65, 60), self.play),
-            Button('piano_roll', (966, 68), (63, 62), self.toggle_piano_roll),
-            Button('open_sound_font', (1028, 68), (63, 62), self.load_sound_font),
-            Button('open_file', (323, 68), (65, 62), self.open_new_midi)
+            Button(
+                'play',
+                (700, 8),
+                (65, 60),
+                self.play, size_over_image=(64, 64),
+                source_image_offset=(190, 0)
+            ),
+            Button(
+                'piano_roll',
+                (966, 68),
+                (63, 62),
+                self.toggle_piano_roll,
+                size_over_image=(64, 64),
+                source_image_offset=(570, 0)
+            ),
+            Button(
+                'open_sound_font',
+                (1028, 68),
+                (63, 62),
+                self.load_sound_font,
+                size_over_image=(64, 64),
+                source_image_offset=(635, 0)
+            ),
+            Button(
+                'open_file',
+                (323, 68),
+                (65, 62),
+                self.open_new_midi,
+                size_over_image=(64, 64),
+                source_image_offset=(379, 0)
+            ),
+            Button(
+                'settings',
+                (1217, 68),
+                (63, 63),
+                self.draw_settings_screen,
+                size_over_image=(64, 64),
+                source_image_offset=(817, 0)
+            )
         ]
 
+    def draw_settings_screen(self):
+        if self.active_screen == 'main':
+            # Do the settings screen
+            self.gui = [
+                Image('background_settings', (0, 0)).create_image()
+            ]
+            self.buttons = [
+                Button(
+                    'settings',
+                    (1217, 68),
+                    (63, 63),
+                    self.draw_settings_screen,
+                    size_over_image=(64, 64),
+                    source_image_offset=(817, 0)
+                ),
+                Button(
+                    'Output Port MIDI',
+                    (120, 171),
+                    (227, 50),
+                    self.active_fieldtext_output_port_midi
+                )
+            ]
+            self.active_screen = 'settings'
+        else:
+            self.draw_main_screen()
+            self.active_screen = 'main'
+
+    def active_fieldtext_output_port_midi(self):
+        # surface = pygame.Surface(pygame.Rect(0, 0, 35, 35))
+
+        print('activating_field')
+
     def refresh_screen(self):
+        # Refresh the dynamic_text
+        self.gui_dynamic_texts()
+
         buffering = []
 
         for image in self.gui:
             buffering.append([image.shader, image.position])
+
+        for dynamic_text in self.dynamic_texts:
+            buffering.append([dynamic_text.shader, dynamic_text.position])
 
         for button in self.buttons:
             if hasattr(button, 'state') and button.state == 'active':
@@ -101,6 +177,14 @@ class MidiPlayer:
                 buffering.append([button.shader, button.position])
 
         return buffering
+
+    def gui_dynamic_texts(self):
+        # TODO: Agregar a self.dynamic_text los objetos a renderizar -> linea 42
+        if self.hstream_handle:
+            if BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
+                file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
+                position_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
+                self.gui[3] = Text(str(position_seconds), (0, 40)).create_text()
 
     def load_sound_font(self):
         Tk().withdraw()
@@ -122,7 +206,6 @@ class MidiPlayer:
                 os.remove(new_sound_font)
 
     def toggle_piano_roll(self):
-        print(self.window_size)
         if self.window_size[1] == 266:
             self.window_size = (1280, 443)
             self.screen = pygame.display.set_mode(self.window_size)
@@ -135,7 +218,8 @@ class MidiPlayer:
     """
 
     def play(self):
-        if len(self.playlist) == 0:
+        file = self.playlist.get_file_to_play()
+        if not file:
             return self.open_new_midi()
 
         if BASS_ChannelIsActive(self.hstream_handle) != BASS_ACTIVE_PLAYING:
@@ -150,6 +234,11 @@ class MidiPlayer:
     def stop(self):
         pass
 
+    def format_time(self, seconds):
+        string_time = str(datetime.timedelta(seconds=seconds))
+
+        return Text(string_time, (0, 20)).create_text()
+
     """
     Lanza la interfaz de windows para cargar un nuevo archivo
     """
@@ -161,10 +250,15 @@ class MidiPlayer:
 
         if new_midi:
             if new_midi.find('.mid', -4) > 5:
-                if self.hstream_handle: BASS_ChannelStop(self.hstream_handle)
-                self.playlist.append(new_midi)
-                self.playlist_index = len(self.playlist) - 1
+                if self.hstream_handle:
+                    BASS_ChannelStop(self.hstream_handle)
+
                 self.hstream_handle = BASS_MIDI_StreamCreateFile(False, str(new_midi), 0, 0, 0, 44100)
+                file_size = BASS_ChannelGetLength(self.hstream_handle, BASS_POS_BYTE)
+                file_lenght_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_size)
+
+                self.gui[1] = self.playlist.add_new_file(new_midi)
+                self.gui[2] = self.format_time(file_lenght_seconds)
                 if self.hstream_handle:
                     self.play()
                 else:
@@ -186,8 +280,63 @@ class MidiPlayer:
                 button.function()
 
 
+class Playlist:
+    def __init__(self):
+        self.files_path = []
+        self.files_name = []
+        self.active_file = 0
+
+    def get_file_to_play(self):
+        if not len(self.files_name) > 0:
+            return None
+        return [self.files_name[self.active_file], self.files_path[self.active_file]]
+
+    def add_new_file(self, file_path):
+        self.files_path.append(file_path)
+        self.files_name.append(self.clean_name_file(file_path))
+        self.active_file = self.files_path.index(file_path)
+        return Text(self.files_name[-1], (0, 0)).create_text()
+
+    def clean_name_file(self, file_name):
+        name = file_name.split('/')[-1]
+        return name.split('.')[0]
+
+    def change_file_to_play(self, index):
+        pass
+
+
+class Text:
+    def __init__(self, content, position, font=None, size=16):
+        self.content = content
+        self.position = position
+        self.font_family = font
+        self.size_font = size
+        self.shader = None
+
+    def create_text(self):
+        if not pygame.font.get_init():
+            pygame.font.init()
+        text = pygame.font.Font(self.font_family, self.size_font)
+        print(self.content)
+        surface = text.render(self.content, True, (255, 255, 255))
+        self.shader = surface
+
+        return self
+
+
 class Button:
-    def __init__(self, name, position, size, function, state='inactive', image_over='sprite', size_over_image=(0, 0)):
+    def __init__(
+            self,
+            name,
+            position,
+            size,
+            function,
+            size_over_image=(0, 0),
+            source_image_offset=(0, 0),
+            state='inactive',
+            image_over='sprite'
+    ):
+
         self.name = name
         self.position = position
         self.size = size
@@ -195,9 +344,10 @@ class Button:
         self.state = state
         self.source_image_over_state = image_over
         self.size_image_cropped = size_over_image
+        self.source_image_offset = source_image_offset
         self.state_time = 5
         self.shader = None
-        self.debug = True
+        self.debug = False
 
         self.create_button()
         self.set_over_image()
@@ -221,7 +371,7 @@ class Button:
             self.source_image_over_state,
             (0, 0),
             size_image_cropped=self.size_image_cropped,
-            source_image_offset=(573, 0)
+            source_image_offset=self.source_image_offset
         ).create_image()
 
 
@@ -240,6 +390,7 @@ class Image:
 
     def create_image(self):
         self.shader = pygame.image.load(os.path.join(self.name + '.png'))
+
         if self.frame_size:
             cropped_image = pygame.Surface(self.frame_size)
             cropped_image.blit(
