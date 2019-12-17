@@ -1,3 +1,13 @@
+"""
+La clase App es el control principal del programa, la primera capa, en donde vive la clase Midi_Player
+La clase App renderiza todos los elementos que vengan de la clase MidiPlayer en su funcion refresh_screen()
+get_window_size() Retorna el valor configurado del tamano de la pantalla
+update() Es el corazon del programa, ejecuta lo necesario para correr el software
+mouse_states() Revisa los estados (hover, clicked) del mouse
+refresh_screen() Refresca la pantalla
+
+"""
+
 import pygame, sys, os, time, ConfigParser, datetime
 from pybass import *
 from pybass.pybassmidi import *
@@ -18,7 +28,9 @@ class App:
         self.screen = pygame.display.set_mode(self.window_size)
         self.clock = pygame.time.Clock()
         self.interface = interface
+        self.interface_hot_spots = []
         self.interface.set_window_size(self.window_size)
+        self.mouse_state = 'idle'
 
     def get_window_size(self):
         return self.window_size
@@ -27,28 +39,63 @@ class App:
         self.clock.tick(40)
         for event in pygame.event.get():
             if event.type == pygame.QUIT: sys.exit()
+        self.mouse_states()
+
+        self.refresh_screen()
+
+    def mouse_states(self):
+        if len(self.interface_hot_spots) > 0:
+            x, y = pygame.mouse.get_pos()
+            if self.mouse_state == 'idle':
+                for hot_spot in self.interface_hot_spots:
+                    if hot_spot[0] < x < (hot_spot[0] + hot_spot[2]):
+                        if hot_spot[1] < y < (hot_spot[1] + hot_spot[3]):
+                            self.mouse_state = hot_spot[6]
+                            hot_spot[5]()
+
+                self.interface_hot_spots = []
+            elif self.mouse_state == 'text':
+                for hot_spot in self.interface_hot_spots:
+                    if hot_spot[0] > x < hot_spot[2] or hot_spot[1] < y > hot_spot[3]:
+                        self.mouse_state = 'idle'
+                        hot_spot[4]()
+
+
         if pygame.mouse.get_pressed()[0]:
             x, y = pygame.mouse.get_pos()
             self.interface.left_click_pressed(x, y)
         elif pygame.mouse.get_pressed()[2]:
             print(pygame.event.get())
 
-        self.refresh_screen()
-
     def refresh_screen(self):
         self.screen.fill((0, 0, 0))
         to_render = self.interface.refresh_screen()
+        self.interface_hot_spots = self.interface.get_hot_spots()
 
         for element in to_render:
             self.screen.blit(element[0], element[1])
         pygame.display.update()
 
+"""
+La clase MidiPlayer contiene los demas elementos de su utilidad como la clase Playlist
+La clase MidiPlayer inicializa toda la biblioteca de BASS
+Crea los elementos a dibujar en pantalla haciento instancias y guardandolos dentro de la lista de objetos a renderizar
+pasada a su clase padre App en la funcion refresh_screen()
+set_window_size() Configura el tamano de la pantalla
+draw_main_screen() Dibuja los elementos de la pantalla principal
+draw_settings_screen() Dibuja los elementos de la pantalla de configuracion
+refresh_screen() Organiza y agrega al buffer todos los elementos a renderizar
+gui_dynamic_texts() Adiciona todos los textos dinamicos
+load_sound_font() Carga un SoundFont del disco local
+toggle_piano_roll() Habilita/Deshabilita el piano roll
+"""
 
 class MidiPlayer:
     def __init__(self):
         BASS_Init(-1, 44100, 0, 0, 0)
 
         self.buttons = []
+        self.hot_spots = []
         self.gui = []
         self.dynamic_texts = []
         self.clock = pygame.time.Clock()
@@ -76,8 +123,7 @@ class MidiPlayer:
         self.gui = [
             Image('background', (0, 0)).create_image(),
             Text('MIDI Name', (0, 0)).create_text(),
-            Text('MIDI Time',  (0, 20)).create_text(),
-            Text('Timecode', (0, 40)).create_text()
+            Text('MIDI Time',  (0, 20)).create_text()
         ]
         self.buttons = [
             Button(
@@ -143,6 +189,9 @@ class MidiPlayer:
                     self.active_fieldtext_output_port_midi
                 )
             ]
+            self.hot_spots = [
+                [20, 20, 100, 100, self.draw_idle_cursor, self.draw_over_field_cursor, 'text']
+            ]
             self.active_screen = 'settings'
         else:
             self.draw_main_screen()
@@ -154,10 +203,11 @@ class MidiPlayer:
         print('activating_field')
 
     def refresh_screen(self):
-        # Refresh the dynamic_text
-        self.gui_dynamic_texts()
-
+        self.dynamic_texts = []
         buffering = []
+
+        if self.hstream_handle and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
+            self.gui_dynamic_texts()
 
         for image in self.gui:
             buffering.append([image.shader, image.position])
@@ -178,13 +228,26 @@ class MidiPlayer:
 
         return buffering
 
+    def get_hot_spots(self):
+        return self.hot_spots
+
+    def draw_idle_cursor(self):
+        pygame.mouse.set_cursor((16, 19), (0, 0), (
+        128, 0, 192, 0, 160, 0, 144, 0, 136, 0, 132, 0, 130, 0, 129, 0, 128, 128, 128, 64, 128, 32, 128, 16, 129, 240,
+        137, 0, 148, 128, 164, 128, 194, 64, 2, 64, 1, 128), (
+                                128, 0, 192, 0, 224, 0, 240, 0, 248, 0, 252, 0, 254, 0, 255, 0, 255, 128, 255, 192, 255,
+                                224, 255, 240, 255, 240, 255, 0, 247, 128, 231, 128, 195, 192, 3, 192, 1, 128))
+
+    def draw_over_field_cursor(self):
+        pygame.mouse.set_cursor((8, 8), (4, 4), (24, 24, 24, 231, 231, 24, 24, 24), (0, 0, 0, 0, 0, 0, 0, 0))
+
     def gui_dynamic_texts(self):
-        # TODO: Agregar a self.dynamic_text los objetos a renderizar -> linea 42
         if self.hstream_handle:
             if BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
                 file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
                 position_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
-                self.gui[3] = Text(str(position_seconds), (0, 40)).create_text()
+                self.dynamic_texts.append(Text(str(position_seconds), (0, 40)).create_text())
+
 
     def load_sound_font(self):
         Tk().withdraw()
@@ -279,7 +342,9 @@ class MidiPlayer:
                 pygame.event.clear()
                 button.function()
 
-
+"""
+Es la clase que lleva el recuento de todos los archivos abiertos en la sesion
+"""
 class Playlist:
     def __init__(self):
         self.files_path = []
