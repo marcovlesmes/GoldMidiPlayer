@@ -28,9 +28,9 @@ class App:
         self.screen = pygame.display.set_mode(self.window_size)
         self.clock = pygame.time.Clock()
         self.interface = interface
-        self.interface_hot_spots = []
+        self.interface_buttons = []
         self.interface.set_window_size(self.window_size)
-        self.mouse_state = 'idle'
+        self.cursor = 'idle'
 
     def get_window_size(self):
         return self.window_size
@@ -39,27 +39,37 @@ class App:
         self.clock.tick(40)
         for event in pygame.event.get():
             if event.type == pygame.QUIT: sys.exit()
-        self.mouse_states()
+        if pygame.mouse.get_focused():
+            self.interface_buttons = self.interface.get_buttons()
+            self.mouse_states()
 
         self.refresh_screen()
 
+    # TODO: Corregir esa funcion en que se repite el codigo
     def mouse_states(self):
-        if len(self.interface_hot_spots) > 0:
+        if len(self.interface_buttons) > 0:
             x, y = pygame.mouse.get_pos()
-            if self.mouse_state == 'idle':
-                for hot_spot in self.interface_hot_spots:
-                    if hot_spot[0] < x < (hot_spot[0] + hot_spot[2]):
-                        if hot_spot[1] < y < (hot_spot[1] + hot_spot[3]):
-                            self.mouse_state = hot_spot[6]
-                            hot_spot[5]()
 
-                self.interface_hot_spots = []
-            elif self.mouse_state == 'text':
-                for hot_spot in self.interface_hot_spots:
-                    if hot_spot[0] > x < hot_spot[2] or hot_spot[1] < y > hot_spot[3]:
-                        self.mouse_state = 'idle'
-                        hot_spot[4]()
+            for button in self.interface_buttons:
+                if button.position[0] < x < (button.position[0] + button.size[0]):
+                    if button.position[1] < y < (button.position[1] + button.size[1]):
+                        if self.cursor == 'idle':
+                            button.to_hover_state()
 
+                        self.cursor = 'hover'
+                        break
+                    else:
+                        if self.cursor == 'hover':
+                            button.to_idle_state()
+
+                        self.cursor = 'idle'
+                else:
+                    if self.cursor == 'hover':
+                        button.to_idle_state()
+
+                    self.cursor = 'idle'
+
+            self.interface_buttons = []
 
         if pygame.mouse.get_pressed()[0]:
             x, y = pygame.mouse.get_pos()
@@ -70,11 +80,11 @@ class App:
     def refresh_screen(self):
         self.screen.fill((0, 0, 0))
         to_render = self.interface.refresh_screen()
-        self.interface_hot_spots = self.interface.get_hot_spots()
 
         for element in to_render:
             self.screen.blit(element[0], element[1])
         pygame.display.update()
+
 
 """
 La clase MidiPlayer contiene los demas elementos de su utilidad como la clase Playlist
@@ -189,9 +199,6 @@ class MidiPlayer:
                     self.active_fieldtext_output_port_midi
                 )
             ]
-            self.hot_spots = [
-                [20, 20, 100, 100, self.draw_idle_cursor, self.draw_over_field_cursor, 'text']
-            ]
             self.active_screen = 'settings'
         else:
             self.draw_main_screen()
@@ -228,18 +235,8 @@ class MidiPlayer:
 
         return buffering
 
-    def get_hot_spots(self):
-        return self.hot_spots
-
-    def draw_idle_cursor(self):
-        pygame.mouse.set_cursor((16, 19), (0, 0), (
-        128, 0, 192, 0, 160, 0, 144, 0, 136, 0, 132, 0, 130, 0, 129, 0, 128, 128, 128, 64, 128, 32, 128, 16, 129, 240,
-        137, 0, 148, 128, 164, 128, 194, 64, 2, 64, 1, 128), (
-                                128, 0, 192, 0, 224, 0, 240, 0, 248, 0, 252, 0, 254, 0, 255, 0, 255, 128, 255, 192, 255,
-                                224, 255, 240, 255, 240, 255, 0, 247, 128, 231, 128, 195, 192, 3, 192, 1, 128))
-
-    def draw_over_field_cursor(self):
-        pygame.mouse.set_cursor((8, 8), (4, 4), (24, 24, 24, 231, 231, 24, 24, 24), (0, 0, 0, 0, 0, 0, 0, 0))
+    def get_buttons(self):
+        return self.buttons
 
     def gui_dynamic_texts(self):
         if self.hstream_handle:
@@ -258,12 +255,12 @@ class MidiPlayer:
                 is_sound_font_coded = True
                 new_sound_font = SoundCoder().decrypt_sound_found_in_memory(new_sound_font)
 
-            if new_sound_font.find('.sf2', -4) > 5:
+            if new_sound_font.find('.sf2', -4) > 5 or new_sound_font.find('.') == -1:
                 sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(str(new_sound_font), 0), -1, 0)
 
                 if self.hstream_handle is not None and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
                     BASS_MIDI_StreamSetFonts(self.hstream_handle, sound_font, 1)
-                BASS_MIDI_StreamSetFonts(0, sound_font, 1)
+                    BASS_MIDI_StreamSetFonts(0, sound_font, 1)
 
             if is_sound_font_coded and os.path.exists(new_sound_font):
                 os.remove(new_sound_font)
@@ -392,17 +389,19 @@ class Text:
 class Button:
     def __init__(
             self,
-            name,
+            file_name,
             position,
             size,
             function,
             size_over_image=(0, 0),
             source_image_offset=(0, 0),
+            cursor_over='pointer',
+            cursor_over_out='idle',
             state='inactive',
             image_over='sprite'
     ):
 
-        self.name = name
+        self.file_name = file_name
         self.position = position
         self.size = size
         self.function = function
@@ -410,6 +409,8 @@ class Button:
         self.source_image_over_state = image_over
         self.size_image_cropped = size_over_image
         self.source_image_offset = source_image_offset
+        self.cursor_over = cursor_over
+        self.cursor_over_out = cursor_over_out
         self.state_time = 5
         self.shader = None
         self.debug = False
@@ -422,8 +423,8 @@ class Button:
     """
 
     def create_button(self):
-        if os.path.exists(os.path.join(self.name + '.png')):
-            image = pygame.image.load(os.path.join(self.name + '.png'))
+        if os.path.exists(os.path.join(self.file_name + '.png')):
+            image = pygame.image.load(os.path.join(self.file_name + '.png'))
         else:
             image = pygame.Surface(self.size, pygame.SRCALPHA)
             if self.debug:
@@ -438,6 +439,18 @@ class Button:
             size_image_cropped=self.size_image_cropped,
             source_image_offset=self.source_image_offset
         ).create_image()
+
+    def to_hover_state(self):
+        pygame.mouse.set_cursor((8, 8), (4, 4), (24, 24, 24, 231, 231, 24, 24, 24), (0, 0, 0, 0, 0, 0, 0, 0))
+
+    def to_idle_state(self):
+        pygame.mouse.set_cursor((16, 19), (0, 0), (
+            128, 0, 192, 0, 160, 0, 144, 0, 136, 0, 132, 0, 130, 0, 129, 0, 128, 128, 128, 64, 128, 32, 128, 16, 129,
+            240,
+            137, 0, 148, 128, 164, 128, 194, 64, 2, 64, 1, 128), (
+                                    128, 0, 192, 0, 224, 0, 240, 0, 248, 0, 252, 0, 254, 0, 255, 0, 255, 128, 255, 192,
+                                    255,
+                                    224, 255, 240, 255, 240, 255, 0, 247, 128, 231, 128, 195, 192, 3, 192, 1, 128))
 
 
 class Image:
@@ -491,16 +504,16 @@ class Image:
 
 
 # def create_crypto_sound(file_name):
-#     name = file_name.split('.')[0]
+#     file_name = file_name.split('.')[0]
 #
 #     file = open(file_name, 'r')
-#     # newFile = open(name + '.sfc', 'w')
+#     # newFile = open(file_name + '.sfc', 'w')
 #     for line in file:
 #         print(line)
 #         # newFile.write('|' + base64.b64encode(line))
 #     file.close()
 #     # newFile.close()
-#     print(name + '.sfc se ha creado correctamente.')
+#     print(file_name + '.sfc se ha creado correctamente.')
 
 # open_sound_found(sound_font)
 # create_crypto_sound(sound_font)
