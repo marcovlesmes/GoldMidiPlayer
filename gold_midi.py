@@ -100,9 +100,15 @@ load_sound_font() Carga un SoundFont del disco local
 toggle_piano_roll() Habilita/Deshabilita el piano roll
 """
 
+
 class MidiPlayer:
+
+
     def __init__(self):
         BASS_Init(-1, 44100, 0, 0, 0)
+        self.GOLD_MIDI_NAME_POSITION = (430, 100)
+        self.GOLD_MIDI_TIME_POSITION = (605, 100)
+        self.GOLD_MIDI_TIMECOUNT_POSITION = (725, 100)
 
         self.buttons = []
         self.hot_spots = []
@@ -132,8 +138,8 @@ class MidiPlayer:
     def draw_main_screen(self):
         self.gui = [
             Image('background', (0, 0)).create_image(),
-            Text('MIDI Name', (0, 0)).create_text(),
-            Text('MIDI Time',  (0, 20)).create_text()
+            Text('MIDI Name', self.GOLD_MIDI_NAME_POSITION).create_text(),
+            Text('MIDI Time',  self.GOLD_MIDI_TIME_POSITION).create_text()
         ]
         self.buttons = [
             Button(
@@ -174,6 +180,14 @@ class MidiPlayer:
                 self.draw_settings_screen,
                 size_over_image=(64, 64),
                 source_image_offset=(817, 0)
+            ),
+            Button(
+                'convert_to_csf',
+                (1092, 68),
+                (63, 63),
+                self.convert_sf2_to_csf,
+                size_over_image=(64, 64),
+                source_image_offset=(882, 0)
             )
         ]
 
@@ -243,24 +257,34 @@ class MidiPlayer:
             if BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
                 file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
                 position_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
-                self.dynamic_texts.append(Text(str(position_seconds), (0, 40)).create_text())
+                self.dynamic_texts.append(Text(str(position_seconds), self.GOLD_MIDI_TIMECOUNT_POSITION).create_text())
 
 
     def load_sound_font(self):
         Tk().withdraw()
         new_sound_font = askopenfilename()
         is_sound_font_coded = False
+        file_type_supported = False
+
         if new_sound_font:
-            if new_sound_font.find('.sfc', -4) > 5:
+            """ Check if the file is suported and config the loading """
+            if new_sound_font.find('.csf', -4) > 5:
+                file_type_supported = True
                 is_sound_font_coded = True
+
                 new_sound_font = SoundCoder().decrypt_sound_found_in_memory(new_sound_font)
 
-            if new_sound_font.find('.sf2', -4) > 5 or new_sound_font.find('.') == -1:
+            if new_sound_font and (new_sound_font.find('.sf2', -4) > 5 or new_sound_font.find('.') == -1):
+                file_type_supported = True
+
+            """ File is suported. Loading: """
+            if file_type_supported:
                 sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(str(new_sound_font), 0), -1, 0)
 
                 if self.hstream_handle is not None and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
                     BASS_MIDI_StreamSetFonts(self.hstream_handle, sound_font, 1)
-                    BASS_MIDI_StreamSetFonts(0, sound_font, 1)
+
+                BASS_MIDI_StreamSetFonts(0, sound_font, 1)
 
             if is_sound_font_coded and os.path.exists(new_sound_font):
                 os.remove(new_sound_font)
@@ -297,7 +321,7 @@ class MidiPlayer:
     def format_time(self, seconds):
         string_time = str(datetime.timedelta(seconds=seconds))
 
-        return Text(string_time, (0, 20)).create_text()
+        return Text(string_time, self.GOLD_MIDI_TIME_POSITION).create_text()
 
     """
     Lanza la interfaz de windows para cargar un nuevo archivo
@@ -317,7 +341,8 @@ class MidiPlayer:
                 file_size = BASS_ChannelGetLength(self.hstream_handle, BASS_POS_BYTE)
                 file_lenght_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_size)
 
-                self.gui[1] = self.playlist.add_new_file(new_midi)
+                file_name = self.playlist.add_new_file(new_midi)
+                self.gui[1] = Text(file_name, self.GOLD_MIDI_NAME_POSITION).create_text()
                 self.gui[2] = self.format_time(file_lenght_seconds)
                 if self.hstream_handle:
                     self.play()
@@ -339,8 +364,21 @@ class MidiPlayer:
                 pygame.event.clear()
                 button.function()
 
+    """
+    Convierte los archivos SF2 a CSF
+    """
+
+    def convert_sf2_to_csf(self):
+        Tk().withdraw()
+        sound_font_path = askopenfilename()
+
+        if sound_font_path:
+            if sound_font_path.find('.sf2', -4) > 5:
+                result = SoundCoder().encrypt_sound_found(sound_font_path)
+                print(result)
+
 """
-Es la clase que lleva el recuento de todos los archivos abiertos en la sesion
+Es la clase que lleva el recuento de todos los archivos MIDI abiertos en la sesion
 """
 class Playlist:
     def __init__(self):
@@ -357,7 +395,7 @@ class Playlist:
         self.files_path.append(file_path)
         self.files_name.append(self.clean_name_file(file_path))
         self.active_file = self.files_path.index(file_path)
-        return Text(self.files_name[-1], (0, 0)).create_text()
+        return self.files_name[-1]
 
     def clean_name_file(self, file_name):
         name = file_name.split('/')[-1]
@@ -379,7 +417,6 @@ class Text:
         if not pygame.font.get_init():
             pygame.font.init()
         text = pygame.font.Font(self.font_family, self.size_font)
-        print(self.content)
         surface = text.render(self.content, True, (255, 255, 255))
         self.shader = surface
 
@@ -413,7 +450,7 @@ class Button:
         self.cursor_over_out = cursor_over_out
         self.state_time = 5
         self.shader = None
-        self.debug = False
+        self.debug = True
 
         self.create_button()
         self.set_over_image()
@@ -478,58 +515,6 @@ class Image:
             )
             self.shader = cropped_image
         return self
-
-
-# def open_sound_found(file_name):
-#     if file_name.split('.')[1] == 'sfc':
-#         print('Crypto Sound Font')
-#         file = open(file_name, 'r')
-#         for line in file.readlines():
-#             print(line)
-#         # decoded_file = base64.b64decode(file.read())
-#         # file.close()
-#         # temp_name = 'temp/' + str(random.random()).split('.')[1] + '.sf2'
-#         # file = open(temp_name, 'w')
-#         # file.write(decoded_file)
-#         # file.close()
-#         # temp_name = 'all voices.sf2'
-#         # print(temp_name)
-#         # print(BASS_MIDI_FontInit(temp_name, 0))
-#         # sf = BASS_MIDI_FONT(BASS_MIDI_FontInit(temp_name, 0), -1, 0)
-#         # print(BASS_MIDI_StreamSetFonts(0, sf, 1))
-#         # sys.exit()
-#         # os.remove(temp_name)
-#     else:
-#         print('Normal Sound Font')
-
-
-# def create_crypto_sound(file_name):
-#     file_name = file_name.split('.')[0]
-#
-#     file = open(file_name, 'r')
-#     # newFile = open(file_name + '.sfc', 'w')
-#     for line in file:
-#         print(line)
-#         # newFile.write('|' + base64.b64encode(line))
-#     file.close()
-#     # newFile.close()
-#     print(file_name + '.sfc se ha creado correctamente.')
-
-# open_sound_found(sound_font)
-# create_crypto_sound(sound_font)
-
-# sys.exit()
-
-
-# """
-# filePlayerHandle = BASS_StreamCreateFile(False, mp3_file, 0, 0, 0)
-# BASS_ChannelPlay(filePlayerHandle, False)
-# """
-#
-# while BASS_ChannelIsActive(filePlayerHandle):
-#     print(BASS_MIDI_StreamGetEvent(filePlayerHandle, 0, MIDI_EVENT_NOTE))
-#
-# print ('Saliendo...')
 
 app = App(MidiPlayer())
 
