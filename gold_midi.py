@@ -53,29 +53,23 @@ class App:
             for button in self.interface_buttons:
                 if button.position[0] < x < (button.position[0] + button.size[0]):
                     if button.position[1] < y < (button.position[1] + button.size[1]):
-                        if self.cursor == 'idle':
-                            button.to_hover_state()
+                        button.to_hover_state()
+                        button.state = 'hover'
+                        if pygame.mouse.get_pressed()[0]:
+                            x, y = pygame.mouse.get_pos()
+                            self.interface.left_click_pressed(x, y)
+                            time.sleep(0.1)
 
-                        self.cursor = 'hover'
-                        break
                     else:
-                        if self.cursor == 'hover':
-                            button.to_idle_state()
-
-                        self.cursor = 'idle'
+                        button.state = 'inactive'
                 else:
-                    if self.cursor == 'hover':
-                        button.to_idle_state()
+                    button.state = 'inactive'
 
-                    self.cursor = 'idle'
+                if len(pygame.event.get()) <= 0 and button.state == 'hover':
+                    button.to_idle_state()
+                    button.state = 'idle'
 
             self.interface_buttons = []
-
-        if pygame.mouse.get_pressed()[0]:
-            x, y = pygame.mouse.get_pos()
-            self.interface.left_click_pressed(x, y)
-        elif pygame.mouse.get_pressed()[2]:
-            print(pygame.event.get())
 
     def refresh_screen(self):
         self.screen.fill((0, 0, 0))
@@ -111,7 +105,6 @@ class MidiPlayer:
         self.GOLD_MIDI_TIMECOUNT_POSITION = (725, 100)
 
         self.buttons = []
-        self.hot_spots = []
         self.gui = []
         self.dynamic_texts = []
         self.clock = pygame.time.Clock()
@@ -137,18 +130,19 @@ class MidiPlayer:
 
     def draw_main_screen(self):
         self.gui = [
-            Image('background', (0, 0)).create_image(),
-            Text('MIDI Name', self.GOLD_MIDI_NAME_POSITION).create_text(),
-            Text('MIDI Time',  self.GOLD_MIDI_TIME_POSITION).create_text()
+            Image('background', (0, 0)).get_image(),
+            Text('MIDI Name', self.GOLD_MIDI_NAME_POSITION).get_text(),
+            Text('MIDI Time',  self.GOLD_MIDI_TIME_POSITION).get_text()
         ]
         self.buttons = [
             Button(
                 'play',
                 (700, 8),
                 (65, 60),
-                self.play, size_over_image=(64, 64),
+                self.play,
+                size_over_image=(64, 64),
                 source_image_offset=(190, 0)
-            ),
+            ).get_button(),
             Button(
                 'piano_roll',
                 (966, 68),
@@ -156,7 +150,7 @@ class MidiPlayer:
                 self.toggle_piano_roll,
                 size_over_image=(64, 64),
                 source_image_offset=(570, 0)
-            ),
+            ).get_button(),
             Button(
                 'open_sound_font',
                 (1028, 68),
@@ -164,7 +158,7 @@ class MidiPlayer:
                 self.load_sound_font,
                 size_over_image=(64, 64),
                 source_image_offset=(635, 0)
-            ),
+            ).get_button(),
             Button(
                 'open_file',
                 (323, 68),
@@ -172,7 +166,7 @@ class MidiPlayer:
                 self.open_new_midi,
                 size_over_image=(64, 64),
                 source_image_offset=(379, 0)
-            ),
+            ).get_button(),
             Button(
                 'settings',
                 (1217, 68),
@@ -180,22 +174,22 @@ class MidiPlayer:
                 self.draw_settings_screen,
                 size_over_image=(64, 64),
                 source_image_offset=(817, 0)
-            ),
+            ).get_button(),
             Button(
                 'convert_to_csf',
                 (1092, 68),
                 (63, 63),
                 self.convert_sf2_to_csf,
                 size_over_image=(64, 64),
-                source_image_offset=(882, 0)
-            )
+                source_image_offset=(695, 0)
+            ).get_button()
         ]
 
     def draw_settings_screen(self):
         if self.active_screen == 'main':
             # Do the settings screen
             self.gui = [
-                Image('background_settings', (0, 0)).create_image()
+                Image('background_settings', (0, 0)).get_image()
             ]
             self.buttons = [
                 Button(
@@ -205,23 +199,17 @@ class MidiPlayer:
                     self.draw_settings_screen,
                     size_over_image=(64, 64),
                     source_image_offset=(817, 0)
-                ),
-                Button(
+                ).get_button(),
+                FormField(
                     'Output Port MIDI',
                     (120, 171),
-                    (227, 50),
-                    self.active_fieldtext_output_port_midi
-                )
+                    (227, 50)
+                ).get_form_field()
             ]
             self.active_screen = 'settings'
         else:
             self.draw_main_screen()
             self.active_screen = 'main'
-
-    def active_fieldtext_output_port_midi(self):
-        # surface = pygame.Surface(pygame.Rect(0, 0, 35, 35))
-
-        print('activating_field')
 
     def refresh_screen(self):
         self.dynamic_texts = []
@@ -257,7 +245,7 @@ class MidiPlayer:
             if BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
                 file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
                 position_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
-                self.dynamic_texts.append(Text(str(position_seconds), self.GOLD_MIDI_TIMECOUNT_POSITION).create_text())
+                self.dynamic_texts.append(Text(str(position_seconds), self.GOLD_MIDI_TIMECOUNT_POSITION).get_text())
 
 
     def load_sound_font(self):
@@ -321,7 +309,7 @@ class MidiPlayer:
     def format_time(self, seconds):
         string_time = str(datetime.timedelta(seconds=seconds))
 
-        return Text(string_time, self.GOLD_MIDI_TIME_POSITION).create_text()
+        return Text(string_time, self.GOLD_MIDI_TIME_POSITION).get_text()
 
     """
     Lanza la interfaz de windows para cargar un nuevo archivo
@@ -342,7 +330,7 @@ class MidiPlayer:
                 file_lenght_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_size)
 
                 file_name = self.playlist.add_new_file(new_midi)
-                self.gui[1] = Text(file_name, self.GOLD_MIDI_NAME_POSITION).create_text()
+                self.gui[1] = Text(file_name, self.GOLD_MIDI_NAME_POSITION).get_text()
                 self.gui[2] = self.format_time(file_lenght_seconds)
                 if self.hstream_handle:
                     self.play()
@@ -360,7 +348,6 @@ class MidiPlayer:
 
             if left < x < (width + left) and top < y < (height + top):
                 button.state = 'active'
-                time.sleep(0.2)
                 pygame.event.clear()
                 button.function()
 
@@ -413,13 +400,13 @@ class Text:
         self.size_font = size
         self.shader = None
 
-    def create_text(self):
         if not pygame.font.get_init():
             pygame.font.init()
         text = pygame.font.Font(self.font_family, self.size_font)
         surface = text.render(self.content, True, (255, 255, 255))
         self.shader = surface
 
+    def get_text(self):
         return self
 
 
@@ -450,16 +437,8 @@ class Button:
         self.cursor_over_out = cursor_over_out
         self.state_time = 5
         self.shader = None
-        self.debug = True
+        self.debug = False
 
-        self.create_button()
-        self.set_over_image()
-
-    """
-        
-    """
-
-    def create_button(self):
         if os.path.exists(os.path.join(self.file_name + '.png')):
             image = pygame.image.load(os.path.join(self.file_name + '.png'))
         else:
@@ -467,15 +446,15 @@ class Button:
             if self.debug:
                 image.fill((255, 255, 0, 60))
         self.shader = image
-        return self
-
-    def set_over_image(self):
         self.source_image_over_state = Image(
             self.source_image_over_state,
             (0, 0),
             size_image_cropped=self.size_image_cropped,
             source_image_offset=self.source_image_offset
-        ).create_image()
+        ).get_image()
+
+    def get_button(self):
+        return self
 
     def to_hover_state(self):
         pygame.mouse.set_cursor((8, 8), (4, 4), (24, 24, 24, 231, 231, 24, 24, 24), (0, 0, 0, 0, 0, 0, 0, 0))
@@ -489,6 +468,47 @@ class Button:
                                     255,
                                     224, 255, 240, 255, 240, 255, 0, 247, 128, 231, 128, 195, 192, 3, 192, 1, 128))
 
+class FormField:
+    def __init__(self, filename, position, size, text=''):
+        self.text = text
+        self.active = False
+        self.debug = True
+        self.position = position
+        self.size = size
+        self.filename = filename
+        # TODO: Evaluar si este atributo es necesario
+        self.state_time = 5
+
+        self.source_image_over_state = Image(
+            'sprite',
+            (0, 0),
+            size_image_cropped=(0,0),
+            source_image_offset=(0,0)
+        ).get_image()
+
+        if os.path.exists(os.path.join(self.filename + '.png')):
+            image = pygame.image.load(os.path.join(self.filename + '.png'))
+        else:
+            image = pygame.Surface(self.size, pygame.SRCALPHA)
+            if self.debug:
+                image.fill((0, 255, 255, 60))
+
+        self.shader = image
+
+
+
+    def get_form_field(self):
+        return self
+
+    def to_hover_state(self):
+        pass
+
+    def to_idle_state(self):
+        pass
+
+    def function(self):
+        print('Aqui quedo activo y recibo comandos del teclado')
+
 
 class Image:
     def __init__(self, name, position, size_image_cropped=None, source_image_offset=None):
@@ -499,11 +519,6 @@ class Image:
         self.source_image_offset = source_image_offset
         self.shader = None
 
-    """
-        Registra la creacion de cada imagen
-    """
-
-    def create_image(self):
         self.shader = pygame.image.load(os.path.join(self.name + '.png'))
 
         if self.frame_size:
@@ -514,6 +529,8 @@ class Image:
                 (self.source_image_offset[0], self.source_image_offset[1], self.frame_size[0], self.frame_size[0])
             )
             self.shader = cropped_image
+
+    def get_image(self):
         return self
 
 app = App(MidiPlayer())
