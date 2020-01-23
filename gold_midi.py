@@ -12,7 +12,9 @@ from tkFileDialog import askopenfilename
 config = ConfigParser.RawConfigParser()
 config.read('config.cfg')
 DEBUG = True
-
+EVENT_SCREEN_CHANGE = 0
+EVENT_MOUSE_OVER_HOT_SPOT = 1
+EVENT_MOUSE_OVER_OUT_HOT_SPOT = 2
 """
 
 """
@@ -22,16 +24,11 @@ class App:
         pygame.init()
         pygame.display.set_caption(config.get("interface", "app-name"))
         # Windows Setup
-
-        self.EVENT_MOUSE_OVER_HOT_SPOT = 0
-        self.EVENT_MOUSE_OVER_OUT_HOT_SPOT = 1
-
         self.window_size = (config.getint("interface", "screen-size-x"), config.getint("interface", "screen-size-y"))
         self.screen = pygame.display.set_mode(self.window_size)
         self.clock = pygame.time.Clock()
         self.interface = interface
-        self.interface_buttons = self.interface.get_buttons()
-        self.interface_forms = self.interface.get_forms()
+        self.interface_fields = self.interface.get_fields()
         self.hot_spots = self.get_hot_spots()
         self.active_hot_spot = None
         self.interface.set_window_size(self.window_size)
@@ -59,7 +56,7 @@ class App:
                         pygame.event.post(
                             pygame.event.Event(
                                 pygame.USEREVENT,
-                                custom_type=self.EVENT_MOUSE_OVER_HOT_SPOT,
+                                custom_type=EVENT_MOUSE_OVER_HOT_SPOT,
                                 index=element
                             )
                         )
@@ -69,18 +66,19 @@ class App:
                             pygame.event.post(
                                 pygame.event.Event(
                                     pygame.USEREVENT,
-                                    custom_type=self.EVENT_MOUSE_OVER_OUT_HOT_SPOT,
+                                    custom_type=EVENT_MOUSE_OVER_OUT_HOT_SPOT,
                                     index=self.active_hot_spot
                                 )
                             )
-            if event.type == pygame.USEREVENT and event.custom_type == self.EVENT_MOUSE_OVER_HOT_SPOT:
-                if (event.index + 1) < len(self.interface_buttons):
-                    self.interface_buttons[event.index].update(event.custom_type)
-                elif (event.index + 1) < (len(self.interface_forms) + len(self.interface_buttons)):
-                    self.interface_forms[event.index].update(event.custom_type)
+            if event.type == pygame.USEREVENT and event.custom_type == EVENT_MOUSE_OVER_HOT_SPOT:
+                self.interface_fields[event.index].update(event.custom_type)
 
-            if event.type == pygame.USEREVENT and event.custom_type == self.EVENT_MOUSE_OVER_OUT_HOT_SPOT:
-                self.interface_buttons[event.index].update(event.custom_type)
+            if event.type == pygame.USEREVENT and event.custom_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
+                self.interface_fields[event.index].update(event.custom_type)
+
+            if event.type == pygame.USEREVENT and event.custom_type == EVENT_SCREEN_CHANGE:
+                self.interface_fields = self.interface.get_fields()
+                self.get_hot_spots()
 
         self.refresh_screen()
 
@@ -97,22 +95,19 @@ class App:
         return None
 
     def mouse_click_hot_spot(self, (x, y)):
-        for button in self.interface_buttons:
-            (button_x, button_y), (button_width, button_height) = button.get_coordinates()
+        for field in self.interface_fields:
+            (button_x, button_y), (button_width, button_height) = field.get_coordinates()
 
             if button_x < x < (button_x + button_width):
                 if button_y < y < (button_y + button_height):
-                    return button
+                    return field
 
         return False
 
     def get_hot_spots(self):
         over_map = []
-        for button in self.interface_buttons:
-            over_map.append(button.get_coordinates())
-        for form in self.interface_forms:
-            for element in form.fields.get_form_fields():
-                over_map.append([element.position, element.size])
+        for field in self.interface_fields:
+            over_map.append(field.get_coordinates())
         return over_map
 
     def refresh_screen(self):
@@ -123,11 +118,9 @@ class App:
             self.screen.blit(element[0], element[1])
         pygame.display.update()
 
-
 """
 
 """
-
 
 class MidiPlayer:
     def __init__(self):
@@ -136,10 +129,9 @@ class MidiPlayer:
         self.GOLD_MIDI_TIME_POSITION = (605, 100)
         self.GOLD_MIDI_TIMECOUNT_POSITION = (725, 100)
 
-        self.buttons = []
+        self.fields = []
         self.images = []
         self.texts = []
-        self.forms = []
         self.clock = pygame.time.Clock()
         self.hstream_handle = None
         self.track = None
@@ -174,7 +166,7 @@ class MidiPlayer:
         self.images = [
             Image('background', (0, 0)).get_image(),
         ]
-        self.buttons = [
+        self.fields = [
             Button(
                 'play',
                 (700, 5),
@@ -246,7 +238,7 @@ class MidiPlayer:
             self.images = [
                 Image('background_settings', (0, 0)).get_image()
             ]
-            self.buttons = [
+            self.fields = [
                 Button(
                     'settings',
                     (1217, 68),
@@ -267,8 +259,15 @@ class MidiPlayer:
             self.draw_main_screen()
             self.active_screen = 'main'
 
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                custom_type=EVENT_SCREEN_CHANGE
+            )
+        )
+
     """
-    Convert all the elements (buttons, images, text, forms, etc...) to be render like a plain image
+    Convert all the fields (fields, images, _text, forms, etc...) to be render like a plain image
     """
     def refresh_screen(self):
         buffering = []
@@ -281,16 +280,13 @@ class MidiPlayer:
                 text.update()
             buffering.append(text.render())
 
-        for button in self.buttons:
+        for button in self.fields:
             buffering.append(button.render())
 
         return buffering
 
-    def get_buttons(self):
-        return self.buttons
-
-    def get_forms(self):
-        return self.forms
+    def get_fields(self):
+        return self.fields
 
     def load_sound_font(self):
         Tk().withdraw()
@@ -398,7 +394,6 @@ class MidiPlayer:
         if sound_font_path:
             if sound_font_path.find('.sf2', -4) > 5:
                 result = SoundCoder().encrypt_sound_found(sound_font_path)
-                print(result)
 
     def get_counter_midi(self):
         position_seconds = '0:00:00'
@@ -408,7 +403,7 @@ class MidiPlayer:
             position_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
 
         return str(position_seconds)
-        # self.texts.append(Text(str(position_seconds), self.GOLD_MIDI_TIMECOUNT_POSITION).get_text())
+
 """
 Es la clase que lleva el recuento de todos los archivos MIDI abiertos en la sesion
 """
@@ -554,18 +549,18 @@ class Button:
 
 class FormField:
     def __init__(self, label, position, size, text=''):
-        self.text = text
+        self._text = text
         self.active = False
-        self.debug = True
-        self.position = position
-        self.size = size
-        self.label = label
+        self._debug = DEBUG
+        self._position = position
+        self._size = size
+        self._label = label
 
-        image = pygame.Surface(self.size, pygame.SRCALPHA)
-        if self.debug:
+        image = pygame.Surface(self._size, pygame.SRCALPHA)
+        if self._debug:
             image.fill((0, 255, 255, 60))
 
-        self.shader = image
+        self._shader = image
 
     def get_form_field(self):
         return self
@@ -576,8 +571,18 @@ class FormField:
     def to_idle_state(self):
         pass
 
+    def get_coordinates(self):
+        return [self._position, self._size]
+
     def function(self):
+        # TODO: Crear un evento que escuche el teclado BIND value. Se actualiza al guardar
         print('Aqui quedo activo y recibo comandos del teclado')
+
+    def update(self):
+        pass
+
+    def render(self):
+        return [self._shader, self._position]
 
 
 class Image:
@@ -612,11 +617,11 @@ class Cursor:
         pass
 
     @staticmethod
-    def to_hover_state(self):
+    def to_hover_state():
         pygame.mouse.set_cursor((8, 8), (4, 4), (24, 24, 24, 231, 231, 24, 24, 24), (0, 0, 0, 0, 0, 0, 0, 0))
 
     @staticmethod
-    def to_idle_state(self):
+    def to_idle_state():
         pygame.mouse.set_cursor((16, 19), (0, 0), (
             128, 0, 192, 0, 160, 0, 144, 0, 136, 0, 132, 0, 130, 0, 129, 0, 128, 128, 128, 64, 128, 32, 128, 16, 129,
             240,
