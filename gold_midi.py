@@ -11,6 +11,7 @@ from tkFileDialog import askopenfilename
 
 config = ConfigParser.RawConfigParser()
 config.read('config.cfg')
+DEBUG = True
 
 """
 
@@ -23,6 +24,7 @@ class App:
         # Windows Setup
 
         self.EVENT_MOUSE_OVER_HOT_SPOT = 0
+        self.EVENT_MOUSE_OVER_OUT_HOT_SPOT = 1
 
         self.window_size = (config.getint("interface", "screen-size-x"), config.getint("interface", "screen-size-y"))
         self.screen = pygame.display.set_mode(self.window_size)
@@ -31,6 +33,7 @@ class App:
         self.interface_buttons = self.interface.get_buttons()
         self.interface_forms = self.interface.get_forms()
         self.hot_spots = self.get_hot_spots()
+        self.active_hot_spot = None
         self.interface.set_window_size(self.window_size)
         self.cursor = 'idle'
         self.event = False
@@ -46,6 +49,7 @@ class App:
                 sys.exit()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 element = self.mouse_click_hot_spot(pygame.mouse.get_pos())
+                print(element)
                 if element:
                     element.function()
             elif event.type == pygame.MOUSEMOTION:
@@ -59,16 +63,28 @@ class App:
                                 index=element
                             )
                         )
-
+                        self.active_hot_spot = element
+                    else:
+                        if self.active_hot_spot:
+                            pygame.event.post(
+                                pygame.event.Event(
+                                    pygame.USEREVENT,
+                                    custom_type=self.EVENT_MOUSE_OVER_OUT_HOT_SPOT,
+                                    index=self.active_hot_spot
+                                )
+                            )
             if event.type == pygame.USEREVENT and event.custom_type == self.EVENT_MOUSE_OVER_HOT_SPOT:
                 if (event.index + 1) < len(self.interface_buttons):
                     self.interface_buttons[event.index].update(event.custom_type)
                 elif (event.index + 1) < (len(self.interface_forms) + len(self.interface_buttons)):
                     self.interface_forms[event.index].update(event.custom_type)
 
+            if event.type == pygame.USEREVENT and event.custom_type == self.EVENT_MOUSE_OVER_OUT_HOT_SPOT:
+                self.interface_buttons[event.index].update(event.custom_type)
+
         self.refresh_screen()
 
-    """ Reconoce cuando el cuersor esta sobre algun punto interactivo (Hot Spot) """
+    """ Reconoce cuando el cursor esta sobre algun punto interactivo (Hot Spot) """
     def mouse_over_hot_spot(self, (x, y)):
         index = 0
 
@@ -78,12 +94,14 @@ class App:
                     return index
             index += 1
 
-        return False
+        return None
 
     def mouse_click_hot_spot(self, (x, y)):
         for button in self.interface_buttons:
-            if button.position[0] < x < (button.position[0] + button.size[0]):
-                if button.position[1] < y < (button.position[1] + button.size[1]):
+            (button_x, button_y), (button_width, button_height) = button.get_coordinates()
+
+            if button_x < x < (button_x + button_width):
+                if button_y < y < (button_y + button_height):
                     return button
 
         return False
@@ -146,7 +164,12 @@ class MidiPlayer:
     def draw_main_screen(self):
         self.texts = [
             Text('MIDI Name', self.GOLD_MIDI_NAME_POSITION).get_text(),
-            Text('MIDI Time', self.GOLD_MIDI_TIME_POSITION).get_text()
+            Text('MIDI Time', self.GOLD_MIDI_TIME_POSITION).get_text(),
+            Text(
+                'MIDI Current Time',
+                self.GOLD_MIDI_TIMECOUNT_POSITION,
+                update_function=self.get_counter_midi
+            ).get_text()
         ]
         self.images = [
             Image('background', (0, 0)).get_image(),
@@ -205,6 +228,15 @@ class MidiPlayer:
                 size_over_image=(64, 64),
                 source_image_offset=(695, 0),
                 image_over='sprite'
+            ).get_button(),
+            Button(
+                'c1',
+                (17, 266),
+                (25, 154),
+                self.play_note,
+                (26, 152),
+                (0, 65),
+                'sprite'
             ).get_button()
         ]
 
@@ -241,16 +273,13 @@ class MidiPlayer:
     def refresh_screen(self):
         buffering = []
 
-        if self.hstream_handle and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
-            file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
-            position_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
-            self.texts.append(Text(str(position_seconds), self.GOLD_MIDI_TIMECOUNT_POSITION).get_text())
-
         for image in self.images:
             buffering.append([image.shader, image.position])
 
         for text in self.texts:
-            buffering.append([text.shader, text.position])
+            if text.is_dynamic:
+                text.update()
+            buffering.append(text.render())
 
         for button in self.buttons:
             buffering.append(button.render())
@@ -300,6 +329,11 @@ class MidiPlayer:
             self.window_size = (1280, 266)
             self.screen = pygame.display.set_mode(self.window_size)
 
+    def play_note(self):
+        BASS_MIDI_StreamEvent(self.hstream_handle, 0, MIDI_EVENT_NOTE, MAKEWORD(60, 100))
+        time.sleep(2)
+        BASS_MIDI_StreamEvent(handle, 0, MIDI_EVENT_NOTE, 60)
+
     """
     Reproduce el archivo cargado, pausa el que se encuentra sonando o abre la ventana para cargarlo
     """
@@ -345,8 +379,9 @@ class MidiPlayer:
                 file_lenght_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_size)
 
                 file_name = self.playlist.add_new_file(new_midi)
-                self.images[1] = Text(file_name, self.GOLD_MIDI_NAME_POSITION).get_text()
-                self.images[2] = self.format_time(file_lenght_seconds)
+                # TODO: Modificar funcion para que no sea por index
+                self.texts[0] = Text(file_name, self.GOLD_MIDI_NAME_POSITION).get_text()
+                self.texts[1] = self.format_time(file_lenght_seconds)
                 if self.hstream_handle:
                     self.play()
                 else:
@@ -365,7 +400,15 @@ class MidiPlayer:
                 result = SoundCoder().encrypt_sound_found(sound_font_path)
                 print(result)
 
+    def get_counter_midi(self):
+        position_seconds = '0:00:00'
 
+        if self.hstream_handle and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
+            file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
+            position_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
+
+        return str(position_seconds)
+        # self.texts.append(Text(str(position_seconds), self.GOLD_MIDI_TIMECOUNT_POSITION).get_text())
 """
 Es la clase que lleva el recuento de todos los archivos MIDI abiertos en la sesion
 """
@@ -397,21 +440,34 @@ class Playlist:
 
 
 class Text:
-    def __init__(self, content, position, font=None, size=16):
-        self.content = content
+    def __init__(self, content, position, font=None, size=16, update_function=None):
         self.position = position
         self.font_family = font
         self.size_font = size
-        self.shader = None
+        self.render_text = None
+        self.is_dynamic = False
+        self.update_function = update_function
 
         if not pygame.font.get_init():
             pygame.font.init()
         text = pygame.font.Font(self.font_family, self.size_font)
-        surface = text.render(self.content, True, (255, 255, 255))
-        self.shader = surface
+        surface = text.render(content, True, (255, 255, 255))
+        self.render_text = surface
+
+        if self.update_function is not None:
+            self.is_dynamic = True
 
     def get_text(self):
         return self
+
+    def update(self):
+        if self.is_dynamic:
+            text = pygame.font.Font(self.font_family, self.size_font)
+            surface = text.render(self.update_function(), True, (255, 255, 255))
+            self.render_text = surface
+
+    def render(self):
+        return [self.render_text, self.position]
 
 
 """
@@ -431,20 +487,21 @@ class Button:
             image_over=None
     ):
         self._file_name = file_name
-        self._source_image_over_state = None
-        self._shader = None
+        self._src_over_image = None
+        self._src_idle_image = None
+        self._render_image = None
 
         self._position = position
         self._size = size
         self._size_image_cropped = size_over_image
         self._source_image_offset = source_image_offset
 
-        self._function = function
-
         self._state = None
         self._state_time = 5
 
-        self._debug = True
+        self._debug = DEBUG
+
+        self.function = function
 
         if os.path.exists(os.path.join(self._file_name + '.png')):
             image = pygame.image.load(os.path.join(self._file_name + '.png'))
@@ -453,10 +510,11 @@ class Button:
             if self._debug:
                 image.fill((255, 255, 0, 60))
 
-        self._shader = image
+        self._src_idle_image = image
+        self._render_image = self._src_idle_image
 
         if image_over:
-            self._source_image_over_state = Image(
+            self._src_over_image = Image(
                 image_over,
                 (0, 0),
                 size_image_cropped=self._size_image_cropped,
@@ -469,18 +527,29 @@ class Button:
     def get_coordinates(self):
         return [self._position, self._size]
 
+    def is_active(self):
+        if self._state:
+            self._state = False
+            return True
+
+        return False
+
     """
     Update information to render
     """
-    def update(self, type):
-        if type ==
-        return [self._shader, self._position]
+    def update(self, event_type):
+        if event_type == 0:
+            self._render_image = self._src_over_image.render()
+            self._state = 'active'
+        elif event_type == 1:
+            self._render_image = self._src_idle_image
+            self._state = None
 
     """
     Get the information to render
     """
     def render(self):
-        return [self._shader, self._position]
+        return [self._render_image, self._position]
 
 
 class FormField:
@@ -533,6 +602,9 @@ class Image:
 
     def get_image(self):
         return self
+
+    def render(self):
+        return self.shader
 
 
 class Cursor:
