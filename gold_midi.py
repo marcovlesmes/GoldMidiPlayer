@@ -46,7 +46,6 @@ class App:
                 sys.exit()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 element = self.mouse_click_hot_spot(pygame.mouse.get_pos())
-                print(element)
                 if element:
                     element.function()
             elif event.type == pygame.MOUSEMOTION:
@@ -70,15 +69,19 @@ class App:
                                     index=self.active_hot_spot
                                 )
                             )
-            if event.type == pygame.USEREVENT and event.custom_type == EVENT_MOUSE_OVER_HOT_SPOT:
-                self.interface_fields[event.index].update(event.custom_type)
-
-            if event.type == pygame.USEREVENT and event.custom_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
-                self.interface_fields[event.index].update(event.custom_type)
-
-            if event.type == pygame.USEREVENT and event.custom_type == EVENT_SCREEN_CHANGE:
-                self.interface_fields = self.interface.get_fields()
-                self.get_hot_spots()
+            try:
+                if event.type == pygame.USEREVENT and event.custom_type == EVENT_MOUSE_OVER_HOT_SPOT:
+                    self.interface_fields[event.index].update(event.custom_type)
+                if event.type == pygame.USEREVENT and event.custom_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
+                    self.interface_fields[event.index].update(event.custom_type)
+                if event.type == pygame.USEREVENT and event.custom_type == EVENT_SCREEN_CHANGE:
+                    self.interface_fields = self.interface.get_fields()
+                    self.hot_spots = self.get_hot_spots()
+                    self.active_hot_spot = None
+                    element = None
+                    pygame.event.clear(pygame.USEREVENT)
+            except IndexError:
+                print('Not element with Index on event. Index: ', pygame.event.get())
 
         self.refresh_screen()
 
@@ -125,9 +128,9 @@ class App:
 class MidiPlayer:
     def __init__(self):
         BASS_Init(-1, 44100, 0, 0, 0)
-        self.GOLD_MIDI_NAME_POSITION = (430, 100)
-        self.GOLD_MIDI_TIME_POSITION = (605, 100)
-        self.GOLD_MIDI_TIMECOUNT_POSITION = (725, 100)
+        self.GOLD_MIDI_NAME_POSITION = (430, 21)
+        self.GOLD_MIDI_TIME_POSITION = (430, 42)
+        self.GOLD_MIDI_TIMECOUNT_POSITION = (640, 42)
 
         self.fields = []
         self.images = []
@@ -169,72 +172,73 @@ class MidiPlayer:
         self.fields = [
             Button(
                 'play',
-                (700, 5),
-                (64, 64),
+                (542, 74),
+                (67, 67),
                 self.play,
-                size_over_image=(64, 64),
-                source_image_offset=(190, 0),
+                hover_image_size=(67, 67),
+                source_image_offset=(311, 135),
+                image_over='sprite'
+            ).get_button(),
+            Button(
+                'stop',
+                (609, 74),
+                (67, 67),
+                self.stop,
+                hover_image_size=(67, 67),
+                source_image_offset=(379, 135),
                 image_over='sprite'
             ).get_button(),
             Button(
                 'piano_roll',
-                (966, 68),
-                (64, 64),
+                (1014, 4),
+                (67, 67),
                 self.toggle_piano_roll,
-                size_over_image=(64, 64),
-                source_image_offset=(570, 0),
+                hover_image_size=(67, 67),
+                source_image_offset=(329, 0),
                 image_over='sprite'
             ).get_button(),
             Button(
                 'open_sound_font',
-                (1028, 68),
-                (64, 64),
+                (1080, 4),
+                (67, 67),
                 self.load_sound_font,
-                size_over_image=(64, 64),
-                source_image_offset=(635, 0),
+                hover_image_size=(67, 67),
+                source_image_offset=(395, 0),
                 image_over='sprite'
             ).get_button(),
             Button(
                 'open_file',
-                (323, 68),
-                (64, 64),
+                (341, 4),
+                (67, 67),
                 self.open_new_midi,
-                size_over_image=(64, 64),
-                source_image_offset=(379, 0),
+                hover_image_size=(67, 67),
+                source_image_offset=(132, 0),
                 image_over='sprite'
             ).get_button(),
             Button(
                 'settings',
-                (1217, 68),
-                (64, 64),
+                (1212, 4),
+                (67, 67),
                 self.draw_settings_screen,
-                size_over_image=(64, 64),
-                source_image_offset=(817, 0),
+                hover_image_size=(67, 67),
+                source_image_offset=(527, 0),
                 image_over='sprite'
             ).get_button(),
             Button(
                 'convert_to_csf',
-                (1092, 68),
-                (64, 64),
+                (1146, 4),
+                (67, 67),
                 self.convert_sf2_to_csf,
-                size_over_image=(64, 64),
-                source_image_offset=(695, 0),
+                hover_image_size=(67, 67),
+                source_image_offset=(461, 0),
                 image_over='sprite'
-            ).get_button(),
-            Button(
-                'c1',
-                (17, 266),
-                (25, 154),
-                self.play_note,
-                (26, 152),
-                (0, 65),
-                'sprite'
             ).get_button()
         ]
 
     def draw_settings_screen(self):
         if self.active_screen == 'main':
             # Do the settings screen
+            self.texts = []
             self.images = [
                 Image('background_settings', (0, 0)).get_image()
             ]
@@ -244,7 +248,7 @@ class MidiPlayer:
                     (1217, 68),
                     (63, 63),
                     self.draw_settings_screen,
-                    size_over_image=(64, 64),
+                    hover_image_size=(64, 64),
                     source_image_offset=(817, 0),
                     image_over='sprite'
                 ).get_button(),
@@ -318,11 +322,11 @@ class MidiPlayer:
                 os.remove(new_sound_font)
 
     def toggle_piano_roll(self):
-        if self.window_size[1] == 266:
-            self.window_size = (1280, 443)
+        if self.window_size[1] == 143:
+            self.window_size = (1280, 328)
             self.screen = pygame.display.set_mode(self.window_size)
         else:
-            self.window_size = (1280, 266)
+            self.window_size = (1280, 143)
             self.screen = pygame.display.set_mode(self.window_size)
 
     def play_note(self):
@@ -349,7 +353,8 @@ class MidiPlayer:
     """
 
     def stop(self):
-        pass
+        if self.hstream_handle:
+            BASS_ChannelStop(self.hstream_handle)
 
     def format_time(self, seconds):
         string_time = str(datetime.timedelta(seconds=seconds))
@@ -477,7 +482,7 @@ class Button:
             position,
             size,
             function,
-            size_over_image=(0, 0),
+            hover_image_size=(0, 0),
             source_image_offset=(0, 0),
             image_over=None
     ):
@@ -488,7 +493,7 @@ class Button:
 
         self._position = position
         self._size = size
-        self._size_image_cropped = size_over_image
+        self._size_image_cropped = hover_image_size
         self._source_image_offset = source_image_offset
 
         self._state = None
@@ -533,10 +538,10 @@ class Button:
     Update information to render
     """
     def update(self, event_type):
-        if event_type == 0:
+        if event_type == EVENT_MOUSE_OVER_HOT_SPOT:
             self._render_image = self._src_over_image.render()
             self._state = 'active'
-        elif event_type == 1:
+        elif event_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
             self._render_image = self._src_idle_image
             self._state = None
 
