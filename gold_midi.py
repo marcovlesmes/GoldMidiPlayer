@@ -15,6 +15,7 @@ DEBUG = True
 EVENT_SCREEN_CHANGE = 0
 EVENT_MOUSE_OVER_HOT_SPOT = 1
 EVENT_MOUSE_OVER_OUT_HOT_SPOT = 2
+EVENT_MOUSE_CLICK_TO_FOCUS_OUT = 3
 """
 
 """
@@ -31,6 +32,7 @@ class App:
         self.interface_fields = self.interface.get_fields()
         self.hot_spots = self.get_hot_spots()
         self.active_hot_spot = None
+        self._active_element = None
         self.interface.set_window_size(self.window_size)
         self.cursor = 'idle'
         self.event = False
@@ -45,9 +47,12 @@ class App:
             if event.type == pygame.QUIT:
                 sys.exit()
             if event.type == pygame.MOUSEBUTTONDOWN:
+                if self._active_element:
+                    self.interface_fields[self._active_element].update(EVENT_MOUSE_CLICK_TO_FOCUS_OUT)
                 element = self.mouse_click_hot_spot(pygame.mouse.get_pos())
                 if element:
-                    element.function()
+                    self._active_element = element.function()
+
             elif event.type == pygame.MOUSEMOTION:
                 if pygame.mouse.get_focused():
                     element = self.mouse_over_hot_spot(pygame.mouse.get_pos())
@@ -59,6 +64,14 @@ class App:
                                 index=element
                             )
                         )
+                        if self.active_hot_spot and self.active_hot_spot != element:
+                            pygame.event.post(
+                                pygame.event.Event(
+                                    pygame.USEREVENT,
+                                    custom_type=EVENT_MOUSE_OVER_OUT_HOT_SPOT,
+                                    index=self.active_hot_spot
+                                )
+                            )
                         self.active_hot_spot = element
                     else:
                         if self.active_hot_spot:
@@ -69,6 +82,10 @@ class App:
                                     index=self.active_hot_spot
                                 )
                             )
+                            self.active_hot_spot = None
+            elif event.type == pygame.KEYDOWN:
+                if self._active_element:
+                    self.interface_fields[self._active_element].update(event.unicode)
             try:
                 if event.type == pygame.USEREVENT and event.custom_type == EVENT_MOUSE_OVER_HOT_SPOT:
                     self.interface_fields[event.index].update(event.custom_type)
@@ -78,7 +95,6 @@ class App:
                     self.interface_fields = self.interface.get_fields()
                     self.hot_spots = self.get_hot_spots()
                     self.active_hot_spot = None
-                    element = None
                     pygame.event.clear(pygame.USEREVENT)
             except IndexError:
                 print('Not element with Index on event. Index: ', pygame.event.get())
@@ -138,7 +154,7 @@ class MidiPlayer:
         self.clock = pygame.time.Clock()
         self.hstream_handle = None
         self.track = None
-        self.sound_font = 'sound_fonts/default.sf2'
+        self.sound_font = 'default.csf'
         self.playlist = Playlist()
         self.window_size = None
         self.active_screen = 'main'
@@ -171,18 +187,36 @@ class MidiPlayer:
         ]
         self.fields = [
             Button(
-                'play',
-                (542, 74),
-                (67, 67),
-                self.play,
+                'fake_button',
+                (0, 0),
+                (0, 0),
+                self.fake_function,
+                (0, 0),
+                (0, 0),
+                'sprite'
+            ).get_button(),
+            Button(
+                'rewind',
+                (473, 73),
+                (55, 55),
+                self.rewind,
+                hover_image_size=(67, 67),
+                source_image_offset=(243, 135),
+                image_over='sprite'
+            ).get_button(),
+            Button(
+                'playing',
+                (543, 73),
+                (55, 55),
+                self.playing,
                 hover_image_size=(67, 67),
                 source_image_offset=(311, 135),
                 image_over='sprite'
             ).get_button(),
             Button(
                 'stop',
-                (609, 74),
-                (67, 67),
+                (610, 73),
+                (55, 55),
                 self.stop,
                 hover_image_size=(67, 67),
                 source_image_offset=(379, 135),
@@ -191,7 +225,7 @@ class MidiPlayer:
             Button(
                 'piano_roll',
                 (1014, 4),
-                (67, 67),
+                (55, 55),
                 self.toggle_piano_roll,
                 hover_image_size=(67, 67),
                 source_image_offset=(329, 0),
@@ -200,7 +234,7 @@ class MidiPlayer:
             Button(
                 'open_sound_font',
                 (1080, 4),
-                (67, 67),
+                (55, 55),
                 self.load_sound_font,
                 hover_image_size=(67, 67),
                 source_image_offset=(395, 0),
@@ -209,7 +243,7 @@ class MidiPlayer:
             Button(
                 'open_file',
                 (341, 4),
-                (67, 67),
+                (55, 55),
                 self.open_new_midi,
                 hover_image_size=(67, 67),
                 source_image_offset=(132, 0),
@@ -218,7 +252,7 @@ class MidiPlayer:
             Button(
                 'settings',
                 (1212, 4),
-                (67, 67),
+                (55, 55),
                 self.draw_settings_screen,
                 hover_image_size=(67, 67),
                 source_image_offset=(527, 0),
@@ -227,7 +261,7 @@ class MidiPlayer:
             Button(
                 'convert_to_csf',
                 (1146, 4),
-                (67, 67),
+                (55, 55),
                 self.convert_sf2_to_csf,
                 hover_image_size=(67, 67),
                 source_image_offset=(461, 0),
@@ -235,9 +269,16 @@ class MidiPlayer:
             ).get_button()
         ]
 
+    def fake_function(self):
+        pass
+
     def draw_settings_screen(self):
         if self.active_screen == 'main':
             # Do the settings screen
+            if self.window_size[1] == 143:
+                self.window_size = (1280, 328)
+                pygame.display.set_mode(self.window_size)
+
             self.texts = []
             self.images = [
                 Image('background_settings', (0, 0)).get_image()
@@ -269,6 +310,12 @@ class MidiPlayer:
                 custom_type=EVENT_SCREEN_CHANGE
             )
         )
+
+    def index_forms(self):
+        index = 0
+        for element in self.fields:
+            element['index'] = index
+            index += 1
 
     """
     Convert all the fields (fields, images, _text, forms, etc...) to be render like a plain image
@@ -324,21 +371,24 @@ class MidiPlayer:
     def toggle_piano_roll(self):
         if self.window_size[1] == 143:
             self.window_size = (1280, 328)
-            self.screen = pygame.display.set_mode(self.window_size)
+            pygame.display.set_mode(self.window_size)
         else:
             self.window_size = (1280, 143)
-            self.screen = pygame.display.set_mode(self.window_size)
+            pygame.display.set_mode(self.window_size)
 
     def play_note(self):
         BASS_MIDI_StreamEvent(self.hstream_handle, 0, MIDI_EVENT_NOTE, MAKEWORD(60, 100))
         time.sleep(2)
         BASS_MIDI_StreamEvent(handle, 0, MIDI_EVENT_NOTE, 60)
 
+    def rewind(self):
+        print('Estou devolviendo!')
+
     """
     Reproduce el archivo cargado, pausa el que se encuentra sonando o abre la ventana para cargarlo
     """
 
-    def play(self):
+    def playing(self):
         file = self.playlist.get_file_to_play()
         if not file:
             return self.open_new_midi()
@@ -384,7 +434,7 @@ class MidiPlayer:
                 self.texts[0] = Text(file_name, self.GOLD_MIDI_NAME_POSITION).get_text()
                 self.texts[1] = self.format_time(file_lenght_seconds)
                 if self.hstream_handle:
-                    self.play()
+                    self.playing()
                 else:
                     print('WARNING: Archivo no encontrado')
 
@@ -409,6 +459,7 @@ class MidiPlayer:
 
         return str(position_seconds)
 
+
 """
 Es la clase que lleva el recuento de todos los archivos MIDI abiertos en la sesion
 """
@@ -431,7 +482,8 @@ class Playlist:
         self.active_file = self.files_path.index(file_path)
         return self.files_name[-1]
 
-    def clean_name_file(self, file_name):
+    @staticmethod
+    def clean_name_file(file_name):
         name = file_name.split('/')[-1]
         return name.split('.')[0]
 
@@ -493,7 +545,7 @@ class Button:
 
         self._position = position
         self._size = size
-        self._size_image_cropped = hover_image_size
+        self._size_hover_image = hover_image_size
         self._source_image_offset = source_image_offset
 
         self._state = None
@@ -517,7 +569,7 @@ class Button:
             self._src_over_image = Image(
                 image_over,
                 (0, 0),
-                size_image_cropped=self._size_image_cropped,
+                size_image_cropped=self._size_hover_image,
                 source_image_offset=self._source_image_offset
             ).get_image()
 
@@ -549,17 +601,35 @@ class Button:
     Get the information to render
     """
     def render(self):
-        return [self._render_image, self._position]
+        position_x, position_y = self._position
+        if self._size > self._size_hover_image:
+            total_x, total_y = self._size
+            pip_x, pip_y = self._size_hover_image
+        else:
+            total_x, total_y = self._size_hover_image
+            pip_x, pip_y = self._size
+
+        total_anchor_x = position_x + (total_x / 2)
+        total_anchor_y = position_y + (total_y / 2)
+        pip_position = (total_anchor_x - (pip_x / 2), total_anchor_y - (pip_y / 2))
+
+        if self._render_image == self._src_over_image.render():
+            return [self._render_image, (self._position[0], self._position[1])]
+        return [self._render_image, (pip_position[0], pip_position[1])]
 
 
 class FormField:
     def __init__(self, label, position, size, text=''):
-        self._text = text
+        self._raw_text = text
+        self._text = Text(self._raw_text, position, update_function=self.enter_value)
+        self._new_key = ''
         self.active = False
         self._debug = DEBUG
         self._position = position
         self._size = size
         self._label = label
+        self._enabled = False
+        self._padding = (10, 10)
 
         image = pygame.Surface(self._size, pygame.SRCALPHA)
         if self._debug:
@@ -580,11 +650,37 @@ class FormField:
         return [self._position, self._size]
 
     def function(self):
-        # TODO: Crear un evento que escuche el teclado BIND value. Se actualiza al guardar
-        print('Aqui quedo activo y recibo comandos del teclado')
+        # TODO: Animation of text indicator ON, FormFieldEnabled
+        if not self._enabled:
+            self._enabled = True
+        return 1
 
-    def update(self):
-        pass
+    def enter_value(self):
+        if self._enabled:
+            self._raw_text += self._new_key
+            return self._raw_text
+
+    def update(self, event_type):
+        if event_type == EVENT_MOUSE_OVER_HOT_SPOT:
+            if self._raw_text == '':
+                self._shader.fill((0, 150, 255, 255))
+        elif event_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
+            if not self._enabled:
+                if self._raw_text == '':
+                    self._shader.fill((0, 255, 255, 60))
+        elif event_type == EVENT_MOUSE_CLICK_TO_FOCUS_OUT:
+            self._enabled = False
+            if self._raw_text == '':
+                self._shader.fill((0, 255, 255, 60))
+        else:
+            if self._enabled:
+                try:
+                    self._new_key = str(event_type)
+                    self._text.update()
+                    self._shader = self._text.render()[0]
+                    # TODO: Change position
+                except UnicodeEncodeError:
+                    print('Warning: [FORM FIELD :: UPDATE]  codec can\'t encode character')
 
     def render(self):
         return [self._shader, self._position]

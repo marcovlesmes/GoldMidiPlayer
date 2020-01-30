@@ -1,6 +1,6 @@
 import cx_Freeze
 
-executables = cx_Freeze.Executable('gold_midi.py', base='Win32GUI')
+executables = cx_Freeze.Executable('gold_midi.py', base='Win32GUI', targetName='gold_midi_player.exe')
 cx_Freeze.setup(
     name="GoldMidiPlayer",
     options={
@@ -23,8 +23,7 @@ cx_Freeze.setup(
                 "goldmidi_x32/Scripts/bass.dll",
                 "goldmidi_x32/Scripts/bass_aac.dll",
                 "goldmidi_x32/Scripts/bassmidi.dll",
-                "sound_fonts/default_decoded.sf2",
-                "sound_fonts/default.sfc"
+                "sound_fonts/default.csf"
             ]
         }
     },
@@ -32,3 +31,5 @@ cx_Freeze.setup(
         executables
     ]
 )
+
+# python setup.py build -> 23-01-2020
