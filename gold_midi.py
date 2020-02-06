@@ -175,6 +175,9 @@ class MidiPlayer:
         self.GOLD_MIDI_NAME_POSITION = (430, 21)
         self.GOLD_MIDI_TIME_POSITION = (430, 42)
         self.GOLD_MIDI_TIMECOUNT_POSITION = (640, 42)
+        self.GOLD_MIDI_STOP = -1
+        self.GOLD_MIDI_PAUSED = 0
+        self.GOLD_MIDI_PLAYING = 1
 
         self.fields = []
         self.images = []
@@ -183,6 +186,8 @@ class MidiPlayer:
         self.hstream_handle = None
         self.track = None
         self._global_volume = 1.0
+        self._file_position = '0:00:00'
+        self._file_state = self.GOLD_MIDI_STOP
         self.sound_font = 'default.csf'
         self.playlist = Playlist()
         self.window_size = None
@@ -229,7 +234,8 @@ class MidiPlayer:
                 self.rewind,
                 hover_image_size=(67, 67),
                 source_image_offset=(243, 135),
-                image_over='sprite'
+                image_over='sprite',
+                help_text='Rewind'
             ).get_button(),
             Button(
                 'playing',
@@ -238,7 +244,8 @@ class MidiPlayer:
                 self.playing,
                 hover_image_size=(67, 67),
                 source_image_offset=(311, 135),
-                image_over='sprite'
+                image_over='sprite',
+                help_text='Play'
             ).get_button(),
             Button(
                 'forward',
@@ -247,7 +254,8 @@ class MidiPlayer:
                 self.forward,
                 hover_image_size=(67, 67),
                 source_image_offset=(446, 135),
-                image_over='sprite'
+                image_over='sprite',
+                help_text='Forward'
             ).get_button(),
             Button(
                 'stop',
@@ -256,7 +264,8 @@ class MidiPlayer:
                 self.stop,
                 hover_image_size=(67, 67),
                 source_image_offset=(379, 135),
-                image_over='sprite'
+                image_over='sprite',
+                help_text='Stop'
             ).get_button(),
             Button(
                 'piano_roll',
@@ -265,7 +274,8 @@ class MidiPlayer:
                 self.toggle_piano_roll,
                 hover_image_size=(67, 67),
                 source_image_offset=(329, 0),
-                image_over='sprite'
+                image_over='sprite',
+                help_text='Show/Hide Piano roll'
             ).get_button(),
             Button(
                 'open_sound_font',
@@ -274,7 +284,8 @@ class MidiPlayer:
                 self.load_sound_font,
                 hover_image_size=(67, 67),
                 source_image_offset=(395, 0),
-                image_over='sprite'
+                image_over='sprite',
+                help_text='Open new SoundFont file'
             ).get_button(),
             Button(
                 'open_file',
@@ -283,7 +294,8 @@ class MidiPlayer:
                 self.open_new_midi,
                 hover_image_size=(67, 67),
                 source_image_offset=(132, 0),
-                image_over='sprite'
+                image_over='sprite',
+                help_text='Open new MIDI file'
             ).get_button(),
             Button(
                 'settings',
@@ -292,7 +304,8 @@ class MidiPlayer:
                 self.draw_settings_screen,
                 hover_image_size=(67, 67),
                 source_image_offset=(527, 0),
-                image_over='sprite'
+                image_over='sprite',
+                help_text='Toggle Settings Screen'
             ).get_button(),
             Button(
                 'convert_to_csf',
@@ -301,7 +314,8 @@ class MidiPlayer:
                 self.convert_sf2_to_csf,
                 hover_image_size=(67, 67),
                 source_image_offset=(461, 0),
-                image_over='sprite'
+                image_over='sprite',
+                help_text='Convert SF2 to CSF format'
             ).get_button()
         ]
 
@@ -374,7 +388,11 @@ class MidiPlayer:
 
     def load_sound_font(self):
         Tk().withdraw()
-        new_sound_font = askopenfilename()
+        new_sound_font = askopenfilename(
+            initialdir="./",
+            title="Select SoundFont file",
+            filetypes=(("SoundFond files", "*.csf *.sf2"), ("all files", "*.*"))
+        )
         is_sound_font_coded = False
         file_type_supported = False
 
@@ -439,8 +457,10 @@ class MidiPlayer:
 
         if BASS_ChannelIsActive(self.hstream_handle) != BASS_ACTIVE_PLAYING:
             BASS_ChannelPlay(self.hstream_handle, False)
+            self._file_state = self.GOLD_MIDI_PLAYING
         else:
             BASS_ChannelPause(self.hstream_handle)
+            self._file_state = self.GOLD_MIDI_PAUSED
 
     """
     Detiene la reproduccion
@@ -450,6 +470,7 @@ class MidiPlayer:
         if self.hstream_handle:
             BASS_ChannelStop(self.hstream_handle)
             BASS_ChannelSetPosition(self.hstream_handle, 0, BASS_POS_BYTE)
+            self._file_state = self.GOLD_MIDI_STOP
 
     def change_volume(self, level):
         if self.hstream_handle:
@@ -476,7 +497,11 @@ class MidiPlayer:
     def open_new_midi(self):
         Tk().withdraw()
         self.stop()
-        new_midi = askopenfilename()
+        new_midi = askopenfilename(
+            initialdir="./",
+            title="Select MIDI file",
+            filetypes=(("MIDI files", "*.mid"), ("all files", "*.*"))
+        )
 
         if new_midi:
             if new_midi.find('.mid', -4) > 5:
@@ -502,20 +527,28 @@ class MidiPlayer:
 
     def convert_sf2_to_csf(self):
         Tk().withdraw()
-        sound_font_path = askopenfilename()
+        sound_font_path = askopenfilename(
+            initialdir="./",
+            title="Select SF2 file",
+            filetypes=(("SF2 files", "*.sf2"), ("all files", "*.*"))
+        )
 
         if sound_font_path:
             if sound_font_path.find('.sf2', -4) > 5:
                 result = SoundCoder().encrypt_sound_found(sound_font_path)
 
     def get_counter_midi(self):
-        position_seconds = '0:00:00'
-
-        if self.hstream_handle and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
+        if self.hstream_handle and self._file_state == self.GOLD_MIDI_PLAYING:
             file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
-            position_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
+            self._file_position = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
+        elif self.hstream_handle and self._file_state == self.GOLD_MIDI_STOP:
+            self._file_position = '0:00:00'
+        return str(self._file_position)
 
-        return str(position_seconds)
+    def get_help_text(self):
+        obj = self.acti
+        if obj and hasattr(obj, 'help_text'):
+            return obj.help_text
 
 
 """
@@ -597,8 +630,11 @@ class Button:
             function,
             hover_image_size=(0, 0),
             source_image_offset=(0, 0),
-            image_over=None
+            image_over=None,
+            help_text=None
     ):
+        self.GOLD_MIDI_HELP_TEXT_POSITION = (20, 125)
+
         self._file_name = file_name
         self._src_over_image = None
         self._src_idle_image = None
@@ -608,6 +644,7 @@ class Button:
         self._size = size
         self._size_hover_image = hover_image_size
         self._source_image_offset = source_image_offset
+        self._help_text = help_text
 
         self._state = None
         self._state_time = 5
@@ -657,6 +694,17 @@ class Button:
         if event_type == EVENT_MOUSE_OVER_HOT_SPOT:
             self._render_image = self._src_over_image.render()
             self._state = 'active'
+            if self._help_text:
+                full_image_size = (
+                    self._position[0] + self._size_hover_image[0],
+                    143
+                )
+                help_text = Text(self._help_text, self.GOLD_MIDI_HELP_TEXT_POSITION).get_text().render()
+                image = pygame.Surface(full_image_size, pygame.SRCALPHA)
+                image.blit(help_text[0], help_text[1])
+                image.blit(self._render_image, self._position)
+
+                self._render_image = image
         elif event_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
             self._render_image = self._src_idle_image
             self._state = None
@@ -678,8 +726,8 @@ class Button:
         pip_position = (total_anchor_x - (pip_x / 2), total_anchor_y - (pip_y / 2))
 
         if self._render_image == self._src_over_image.render():
-            return [self._render_image, (self._position[0], self._position[1])]
-        return [self._render_image, (pip_position[0], pip_position[1])]
+            return [self._render_image, (0, 0)]
+        return [self._render_image, (0, 0)]
 
 
 class Slider:
