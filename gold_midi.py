@@ -62,7 +62,11 @@ class App:
                 element = self.mouse_click_hot_spot(pygame.mouse.get_pos())
                 if element:
                     self._active_element = element
-                    self._active_element.function()
+                    if hasattr(self._active_element, 'function_parameters')\
+                            and self._active_element.function_parameters is not None:
+                        self._active_element.function(self._active_element.function_parameters)
+                    else:
+                        self._active_element.function()
 
             elif event.type == pygame.MOUSEMOTION:
                 if pygame.mouse.get_focused():
@@ -172,9 +176,9 @@ class App:
 class MidiPlayer:
     def __init__(self):
         BASS_Init(-1, 44100, 0, 0, 0)
-        self.GOLD_MIDI_NAME_POSITION = (430, 21)
-        self.GOLD_MIDI_TIME_POSITION = (430, 42)
-        self.GOLD_MIDI_TIMECOUNT_POSITION = (640, 42)
+        self.GOLD_MIDI_NAME_POSITION = (270, 11)
+        self.GOLD_MIDI_TIME_POSITION = (270, 25)
+        self.GOLD_MIDI_TIMECOUNT_POSITION = (405, 25)
         self.GOLD_MIDI_STOP = -1
         self.GOLD_MIDI_PAUSED = 0
         self.GOLD_MIDI_PLAYING = 1
@@ -184,24 +188,129 @@ class MidiPlayer:
         self.texts = []
         self.clock = pygame.time.Clock()
         self.hstream_handle = None
-        self.track = None
+        self.mixer_channels = []
         self._global_volume = 1.0
         self._file_position = '0:00:00'
         self._file_state = self.GOLD_MIDI_STOP
         self.sound_font = 'default.csf'
         self.playlist = Playlist()
         self.window_size = None
-        self.active_screen = 'main'
+        self.active_screen = []
 
         """
         Loading a default sound font
         """
         sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(self.sound_font, 0), -1, 0)
         BASS_MIDI_StreamSetFonts(0, sound_font, 1)
-        self.draw_main_screen()
         """
         END of loading a default sound font
         """
+        self.call_main_screen()
+
+    def call_main_screen(self):
+        screen = self.toggle_screen('main')
+        if screen:
+            self.draw_main_screen()
+
+    def call_mixer_screen(self):
+        screen = self.toggle_screen('mixer')
+        if screen:
+            self.window_size = (self.window_size[0], self.window_size[1] + 144)
+            pygame.display.set_mode(self.window_size)
+            position = (0, 91)
+            if 'piano_roll' in self.active_screen:
+                self.draw_main_screen()
+                self.draw_mixer_screen(position)
+                position_piano_roll_screen = (0, position[1] + 144)
+                self.draw_piano_roll(position_piano_roll_screen)
+            else:
+                self.draw_mixer_screen(position)
+        else:
+            self.window_size = (self.window_size[0], self.window_size[1] - 144)
+            pygame.display.set_mode(self.window_size)
+            if 'piano_roll' in self.active_screen:
+                self.draw_main_screen()
+                position_piano_roll_screen = (0, 91)
+                self.draw_piano_roll(position_piano_roll_screen)
+            else:
+                self.draw_main_screen()
+
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                custom_type=EVENT_SCREEN_CHANGE
+            )
+        )
+
+    def call_piano_roll_screen(self):
+        screen = self.toggle_screen('piano_roll')
+        if screen:
+            self.window_size = (self.window_size[0], self.window_size[1] + 114)
+            pygame.display.set_mode(self.window_size)
+            if 'mixer' in self.active_screen:
+                self.draw_main_screen()
+                self.draw_mixer_screen((0, 91))
+                self.draw_piano_roll((0, 235))
+            else:
+                position = (0, 91)
+                self.draw_piano_roll(position)
+        else:
+            self.window_size = (self.window_size[0], self.window_size[1] - 114)
+            pygame.display.set_mode(self.window_size)
+            if 'mixer' in self.active_screen:
+                self.draw_main_screen()
+                self.draw_mixer_screen((0, 91))
+            else:
+                self.draw_main_screen()
+
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                custom_type=EVENT_SCREEN_CHANGE
+            )
+        )
+
+    def call_settings_screen(self):
+        screen = self.toggle_screen('settings')
+        if screen:
+            self.window_size = (800, 350)
+            pygame.display.set_mode(self.window_size)
+            self.draw_settings_screen()
+        else:
+            if 'mixer' in self.active_screen and 'piano_roll' in self.active_screen:
+                self.draw_main_screen()
+                self.draw_mixer_screen((0, 91))
+                self.draw_piano_roll((0, 235))
+            elif 'mixer' in self.active_screen:
+                self.window_size = (800, 235)
+                pygame.display.set_mode(self.window_size)
+                self.draw_main_screen()
+                self.draw_mixer_screen((0, 91))
+            elif 'piano_roll' in self.active_screen:
+                self.window_size = (800, 235)
+                pygame.display.set_mode(self.window_size)
+                self.draw_main_screen()
+                self.draw_piano_roll((0, 91))
+            else:
+                self.window_size = (800, 91)
+                pygame.display.set_mode(self.window_size)
+                self.draw_main_screen()
+            self.toggle_screen('settings')
+
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                custom_type=EVENT_SCREEN_CHANGE
+            )
+        )
+
+    def toggle_screen(self, screen):
+        if screen in self.active_screen:
+            self.active_screen.remove(screen)
+            return False
+        else:
+            self.active_screen.append(screen)
+            return True
 
     def set_window_size(self, size):
         self.window_size = size
@@ -217,146 +326,210 @@ class MidiPlayer:
             ).get_text()
         ]
         self.images = [
-            Image('background', (0, 0)).get_image(),
+            Image('main_screen', (0, 0)).get_image()
         ]
         self.fields = [
             Slider(
-                (882, 88),
-                (373, 41),
-                (24, 41),
+                (551, 52),
+                (233, 27),
+                (16, 27),
                 function=self.change_volume,
                 get_data_function=self.get_volume
             ).get_slider(),
             Button(
-                'rewind',
-                (474, 73),
-                (55, 55),
-                self.rewind,
-                hover_image_size=(67, 67),
-                source_image_offset=(243, 135),
+                'open_file',
+                (213, 3),
+                (37, 37),
+                self.open_new_midi,
+                hover_image_size=(41, 40),
+                source_image_offset=(81, 0),
                 image_over='sprite',
-                help_text='Rewind'
+                help_text='Open new MIDI file'
             ).get_button(),
             Button(
-                'playing',
-                (542, 73),
-                (55, 55),
-                self.playing,
-                hover_image_size=(67, 67),
-                source_image_offset=(311, 135),
+                'mixer',
+                (591, 3),
+                (37, 37),
+                self.call_mixer_screen,
+                hover_image_size=(41, 41),
+                source_image_offset=(161, 0),
                 image_over='sprite',
-                help_text='Play'
-            ).get_button(),
-            Button(
-                'forward',
-                (677, 73),
-                (55, 55),
-                self.forward,
-                hover_image_size=(67, 67),
-                source_image_offset=(446, 135),
-                image_over='sprite',
-                help_text='Forward'
-            ).get_button(),
-            Button(
-                'stop',
-                (610, 73),
-                (55, 55),
-                self.stop,
-                hover_image_size=(67, 67),
-                source_image_offset=(379, 135),
-                image_over='sprite',
-                help_text='Stop'
+                help_text='Show/Hide Mixer'
             ).get_button(),
             Button(
                 'piano_roll',
-                (1014, 4),
-                (55, 55),
-                self.toggle_piano_roll,
-                hover_image_size=(67, 67),
-                source_image_offset=(329, 0),
+                (634, 3),
+                (37, 37),
+                self.call_piano_roll_screen,
+                hover_image_size=(41, 41),
+                source_image_offset=(203, 0),
                 image_over='sprite',
                 help_text='Show/Hide Piano roll'
             ).get_button(),
             Button(
                 'open_sound_font',
-                (1080, 4),
-                (55, 55),
+                (674, 3),
+                (37, 37),
                 self.load_sound_font,
-                hover_image_size=(67, 67),
-                source_image_offset=(395, 0),
+                hover_image_size=(41, 41),
+                source_image_offset=(243, 0),
                 image_over='sprite',
                 help_text='Open new SoundFont file'
             ).get_button(),
             Button(
-                'open_file',
-                (341, 4),
-                (55, 55),
-                self.open_new_midi,
-                hover_image_size=(67, 67),
-                source_image_offset=(132, 0),
+                'convert_to_csf',
+                (716, 3),
+                (37, 37),
+                self.convert_sf2_to_csf,
+                hover_image_size=(41, 41),
+                source_image_offset=(285, 0),
                 image_over='sprite',
-                help_text='Open new MIDI file'
+                help_text='Convert SF2 to CSF format'
             ).get_button(),
             Button(
                 'settings',
-                (1212, 4),
-                (55, 55),
-                self.draw_settings_screen,
-                hover_image_size=(67, 67),
-                source_image_offset=(527, 0),
+                (757, 3),
+                (37, 37),
+                self.call_settings_screen,
+                hover_image_size=(41, 41),
+                source_image_offset=(325, 0),
                 image_over='sprite',
                 help_text='Toggle Settings Screen'
             ).get_button(),
             Button(
-                'convert_to_csf',
-                (1146, 4),
-                (55, 55),
-                self.convert_sf2_to_csf,
-                hover_image_size=(67, 67),
-                source_image_offset=(461, 0),
+                'rewind',
+                (294, 47),
+                (37, 37),
+                self.rewind,
+                hover_image_size=(41, 41),
+                source_image_offset=(148, 84),
                 image_over='sprite',
-                help_text='Convert SF2 to CSF format'
+                help_text='Rewind'
+            ).get_button(),
+            Button(
+                'playing',
+                (337, 47),
+                (37, 37),
+                self.playing,
+                hover_image_size=(41, 41),
+                source_image_offset=(191, 84),
+                image_over='sprite',
+                help_text='Play'
+            ).get_button(),
+            Button(
+                'stop',
+                (380, 47),
+                (37, 37),
+                self.stop,
+                hover_image_size=(41, 41),
+                source_image_offset=(233, 84),
+                image_over='sprite',
+                help_text='Stop'
+            ).get_button(),
+            Button(
+                'forward',
+                (421, 47),
+                (37, 37),
+                self.forward,
+                hover_image_size=(41, 41),
+                source_image_offset=(274, 84),
+                image_over='sprite',
+                help_text='Forward'
             ).get_button()
         ]
 
     def draw_settings_screen(self):
-        if self.active_screen == 'main':
-            # Do the settings screen
-            if self.window_size[1] == 143:
-                self.window_size = (1280, 328)
-                pygame.display.set_mode(self.window_size)
+        self.texts = []
+        self.images = [
+            Image('settings_screen', (0, 0)).get_image()
+        ]
+        self.fields = [
+            Button(
+                'settings',
+                (757, 3),
+                (37, 37),
+                self.call_settings_screen,
+                hover_image_size=(41, 41),
+                source_image_offset=(325, 0),
+                image_over='sprite'
+            ).get_button(),
+            FormField(
+                'Output Port MIDI',
+                (120, 171),
+                (227, 50)
+            ).get_form_field()
+        ]
+        self.active_screen.append('settings')
 
-            self.texts = []
-            self.images = [
-                Image('background_settings', (0, 0)).get_image()
-            ]
-            self.fields = [
+    def draw_mixer_screen(self, position=(0, 0)):
+        self.images.append(Image('mixer_screen', position).get_image())
+        i = 0
+        solo_buttons_coords = [
+            (position[0] + 50, position[1] + 126),
+            (position[0] + 95, position[1] + 126),
+            (position[0] + 140, position[1] + 126),
+            (position[0] + 185, position[1] + 126),
+            (position[0] + 231, position[1] + 126),
+            (position[0] + 275, position[1] + 126),
+            (position[0] + 321, position[1] + 126),
+            (position[0] + 365, position[1] + 126),
+            (position[0] + 411, position[1] + 126),
+            (position[0] + 455, position[1] + 126),
+            (position[0] + 501, position[1] + 126),
+            (position[0] + 545, position[1] + 126),
+            (position[0] + 590, position[1] + 126),
+            (position[0] + 635, position[1] + 126),
+            (position[0] + 681, position[1] + 126),
+            (position[0] + 726, position[1] + 126)
+        ]
+        mute_buttons_coords = [
+            (position[0] + 66, position[1] + 126),
+            (position[0] + 110, position[1] + 126),
+            (position[0] + 155, position[1] + 126),
+            (position[0] + 200, position[1] + 126),
+            (position[0] + 246, position[1] + 126),
+            (position[0] + 291, position[1] + 126),
+            (position[0] + 335, position[1] + 126),
+            (position[0] + 381, position[1] + 126),
+            (position[0] + 426, position[1] + 126),
+            (position[0] + 470, position[1] + 126),
+            (position[0] + 516, position[1] + 126),
+            (position[0] + 561, position[1] + 126),
+            (position[0] + 605, position[1] + 126),
+            (position[0] + 650, position[1] + 126),
+            (position[0] + 695, position[1] + 126),
+            (position[0] + 740, position[1] + 126)
+        ]
+        while i < len(self.mixer_channels):
+            print(solo_buttons_coords[i])
+            self.fields.append(
                 Button(
-                    'settings',
-                    (1217, 68),
-                    (63, 63),
-                    self.draw_settings_screen,
-                    hover_image_size=(64, 64),
-                    source_image_offset=(817, 0),
+                    'solo_icon',
+                    solo_buttons_coords[i],
+                    (13, 15),
+                    self.solo_track,
+                    params=i,
+                    hover_image_size=(12, 16),
+                    source_image_offset=(358, 40),
                     image_over='sprite'
-                ).get_button(),
-                FormField(
-                    'Output Port MIDI',
-                    (120, 171),
-                    (227, 50)
-                ).get_form_field()
-            ]
-            self.active_screen = 'settings'
-        else:
-            self.draw_main_screen()
-            self.active_screen = 'main'
-
-        pygame.event.post(
-            pygame.event.Event(
-                pygame.USEREVENT,
-                custom_type=EVENT_SCREEN_CHANGE
+                )
             )
-        )
+            self.fields.append(
+                Button(
+                    'mute_icon',
+                    mute_buttons_coords[i],
+                    (13, 15),
+                    self.mute_track,
+                    params=i,
+                    hover_image_size=(12, 16),
+                    source_image_offset=(358, 57),
+                    image_over='sprite'
+                )
+            )
+            i += 1
+
+    def draw_piano_roll(self, position=(0, 0)):
+        self.images.append(Image('piano_roll_screen', position).get_image())
 
     def index_forms(self):
         index = 0
@@ -418,14 +591,6 @@ class MidiPlayer:
 
             if is_sound_font_coded and os.path.exists(new_sound_font):
                 os.remove(new_sound_font)
-
-    def toggle_piano_roll(self):
-        if self.window_size[1] == 143:
-            self.window_size = (1280, 328)
-            pygame.display.set_mode(self.window_size)
-        else:
-            self.window_size = (1280, 143)
-            pygame.display.set_mode(self.window_size)
 
     def play_note(self):
         BASS_MIDI_StreamEvent(self.hstream_handle, 0, MIDI_EVENT_NOTE, MAKEWORD(60, 100))
@@ -509,6 +674,71 @@ class MidiPlayer:
                     BASS_ChannelStop(self.hstream_handle)
 
                 self.hstream_handle = BASS_MIDI_StreamCreateFile(False, str(new_midi), 0, 0, 0, 44100)
+                self.mixer_channels = []
+                """
+                MIXER IMPLEMENTATION START
+                """
+                import binascii
+                file_name = new_midi
+                with open(file_name, 'rb') as f:
+                    number_of_tracks = None
+                    index_track = 0
+                    while True:
+                        id = f.read(4)
+                        if len(id) == 0:
+                            print('End of file', id)
+                            break
+                        if str(binascii.hexlify(id)).upper() == '4D546864':
+                            print('MThd track...')
+                            chunk_size = int(binascii.hexlify(f.read(4)), 16)
+                            format_file = int(binascii.hexlify(f.read(2)), 16)
+                            number_of_tracks = int(binascii.hexlify(f.read(2)), 16)
+                            ticks_per_beat = int(binascii.hexlify(f.read(2)), 16)
+                        elif str(binascii.hexlify(id).upper() == '4D54726B'):
+                            chunk_size = int(binascii.hexlify(f.read(4)), 16)
+                            raw_track_events = f.read(chunk_size)
+                            self.mixer_channels.append({
+                                'index': index_track,
+                                'track_info': chunk_size,
+                                'bank': BASS_MIDI_StreamGetEvent(
+                                    self.hstream_handle, index_track, MIDI_EVENT_BANK
+                                ),
+                                'program': BASS_MIDI_StreamGetEvent(
+                                    self.hstream_handle, index_track, MIDI_EVENT_PROGRAM
+                                ),
+                                'volume': BASS_MIDI_StreamGetEvent(
+                                    self.hstream_handle, index_track, MIDI_EVENT_VOLUME
+                                ),
+                                'pan': BASS_MIDI_StreamGetEvent(
+                                    self.hstream_handle, index_track, MIDI_EVENT_PAN
+                                ),
+                                'solo': False,
+                                'mute': False,
+                                'reverb': BASS_MIDI_StreamGetEvent(
+                                    self.hstream_handle, index_track, MIDI_EVENT_REVERB
+                                ),
+                                'chorus': BASS_MIDI_StreamGetEvent(
+                                    self.hstream_handle, index_track, MIDI_EVENT_CHORUS
+                                ),
+                                'reverb_delay': BASS_MIDI_StreamGetEvent(
+                                    self.hstream_handle, index_track, MIDI_EVENT_REVERB_DELAY
+                                ),
+                                'chorus_delay': BASS_MIDI_StreamGetEvent(
+                                    self.hstream_handle, index_track, MIDI_EVENT_CHORUS_DELAY
+                                )
+                            })
+                            index_track += 1
+                            print('MTrk track...', chunk_size)
+                        else:
+                            print('No track', str(binascii.hexlify(id)).upper())
+                            break
+
+                if 'mixer' in self.active_screen:
+                    self.call_mixer_screen()
+                    self.call_mixer_screen()
+                """
+                MIXER IMPLEMENTATION END
+                """
                 file_size = BASS_ChannelGetLength(self.hstream_handle, BASS_POS_BYTE)
                 file_lenght_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_size)
 
@@ -549,6 +779,36 @@ class MidiPlayer:
         obj = self.acti
         if obj and hasattr(obj, 'help_text'):
             return obj.help_text
+
+    def solo_track(self, channel):
+        if self.mixer_channels[channel]['solo']:
+            self.mixer_channels[channel]['solo'] = False
+        else:
+            self.mixer_channels[channel]['solo'] = True
+
+        solo_tracks = []
+        for track in self.mixer_channels:
+            if track['solo']:
+                solo_tracks.append(track['index'])
+
+        for track in self.mixer_channels:
+            if (track['index'] in solo_tracks and not track['mute']) or not solo_tracks:
+                BASS_MIDI_StreamEvent(self.hstream_handle, track['index'], MIDI_EVENT_VOLUME, track['volume'])
+            else:
+                BASS_MIDI_StreamEvent(self.hstream_handle, track['index'], MIDI_EVENT_VOLUME, 0)
+
+    def mute_track(self, channel):
+        if self.mixer_channels[channel]['mute']:
+            self.mixer_channels[channel]['mute'] = False
+            BASS_MIDI_StreamEvent(
+                self.hstream_handle,
+                self.mixer_channels[channel]['index'],
+                MIDI_EVENT_VOLUME,
+                self.mixer_channels[channel]['volume']
+            )
+        else:
+            self.mixer_channels[channel]['mute'] = True
+            BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_VOLUME, 0)
 
 
 """
@@ -628,12 +888,13 @@ class Button:
             position,
             size,
             function,
+            params=None,
             hover_image_size=(0, 0),
             source_image_offset=(0, 0),
             image_over=None,
             help_text=None
     ):
-        self.GOLD_MIDI_HELP_TEXT_POSITION = (20, 125)
+        self.GOLD_MIDI_HELP_TEXT_POSITION = (14, 79)
 
         self._file_name = file_name
         self._src_over_image = None
@@ -652,6 +913,7 @@ class Button:
         self._debug = DEBUG
 
         self.function = function
+        self.function_parameters = params
 
         if os.path.exists(os.path.join(self._file_name + '.png')):
             image = pygame.image.load(os.path.join(self._file_name + '.png'))
@@ -713,21 +975,10 @@ class Button:
     Get the information to render
     """
     def render(self):
-        position_x, position_y = self._position
-        if self._size > self._size_hover_image:
-            total_x, total_y = self._size
-            pip_x, pip_y = self._size_hover_image
-        else:
-            total_x, total_y = self._size_hover_image
-            pip_x, pip_y = self._size
-
-        total_anchor_x = position_x + (total_x / 2)
-        total_anchor_y = position_y + (total_y / 2)
-        pip_position = (total_anchor_x - (pip_x / 2), total_anchor_y - (pip_y / 2))
-
-        if self._render_image == self._src_over_image.render():
+        if self._help_text and self._state == 'active':
             return [self._render_image, (0, 0)]
-        return [self._render_image, (0, 0)]
+
+        return [self._render_image, self._position]
 
 
 class Slider:
@@ -737,7 +988,7 @@ class Slider:
                  puller_size,
                  function,
                  puller_image='slider_puller',
-                 width_level_marker=10,
+                 width_level_marker=5,
                  init_puller_position=1,
                  get_data_function=None
                  ):
@@ -786,7 +1037,7 @@ class Slider:
     def blits_slider(self):
         self._shader = pygame.Surface((self._size_bar[0] + self._size_puller[0], self._size_bar[1]), pygame.SRCALPHA)
         level_marker = pygame.Surface(self._size_level_marker, pygame.HWSURFACE)
-        level_marker.fill((235, 180, 0, 200))
+        level_marker.fill((235, 180, 0))
         self._shader.blits(((level_marker, (0, 12)), (self._puller, self._puller_position)))
 
     def drag_puller(self):
