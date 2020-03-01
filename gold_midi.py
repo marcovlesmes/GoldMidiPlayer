@@ -17,6 +17,7 @@ EVENT_SCREEN_CHANGE = 0
 EVENT_MOUSE_OVER_HOT_SPOT = 1
 EVENT_MOUSE_OVER_OUT_HOT_SPOT = 2
 EVENT_MOUSE_CLICK_TO_FOCUS_OUT = 3
+EVENT_MOUSE_BUTTON_UP = 4
 
 TYPE_TEXT_OBJ = 0
 TYPE_IMAGE_OBJ = 1
@@ -112,7 +113,7 @@ class App:
                     self._active_element.update(event.unicode)
             elif event.type == pygame.MOUSEBUTTONUP:
                 if self._active_element and self._active_element.get_type() == TYPE_SLIDER_OBJ:
-                    self._active_element.update(None)
+                    self._active_element.update(EVENT_MOUSE_BUTTON_UP)
                     self._active_element = None
 
             if self._active_element and self._active_element.get_type() == TYPE_SLIDER_OBJ:
@@ -329,7 +330,7 @@ class MidiPlayer:
             Image('main_screen', (0, 0)).get_image()
         ]
         self.fields = [
-            Slider(
+            HorizontalSlider(
                 (551, 52),
                 (233, 27),
                 (16, 27),
@@ -500,8 +501,25 @@ class MidiPlayer:
             (position[0] + 695, position[1] + 126),
             (position[0] + 740, position[1] + 126)
         ]
+        sliders_coords = [
+            (position[0] + 52, position[1] + 14),
+            (position[0] + 97, position[1] + 14),
+            (position[0] + 142, position[1] + 14),
+            (position[0] + 187, position[1] + 14),
+            (position[0] + 232, position[1] + 14),
+            (position[0] + 277, position[1] + 14),
+            (position[0] + 322, position[1] + 14),
+            (position[0] + 367, position[1] + 14),
+            (position[0] + 412, position[1] + 14),
+            (position[0] + 457, position[1] + 14),
+            (position[0] + 502, position[1] + 14),
+            (position[0] + 547, position[1] + 14),
+            (position[0] + 592, position[1] + 14),
+            (position[0] + 637, position[1] + 14),
+            (position[0] + 682, position[1] + 14),
+            (position[0] + 727, position[1] + 14)
+        ]
         while i < len(self.mixer_channels):
-            print(solo_buttons_coords[i])
             self.fields.append(
                 Button(
                     'solo_icon',
@@ -512,7 +530,7 @@ class MidiPlayer:
                     hover_image_size=(12, 16),
                     source_image_offset=(358, 40),
                     image_over='sprite'
-                )
+                ).get_button()
             )
             self.fields.append(
                 Button(
@@ -524,7 +542,15 @@ class MidiPlayer:
                     hover_image_size=(12, 16),
                     source_image_offset=(358, 57),
                     image_over='sprite'
-                )
+                ).get_button()
+            )
+            self.fields.append(
+                VerticalSlider(
+                    sliders_coords[i],
+                    (20, 84),
+                    (16, 27),
+                    self.change_channel_volume,
+                ).get_slider()
             )
             i += 1
 
@@ -810,6 +836,9 @@ class MidiPlayer:
             self.mixer_channels[channel]['mute'] = True
             BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_VOLUME, 0)
 
+    def change_channel_volume(self, channel, volume):
+        print(channel, volume)
+
 
 """
 Es la clase que lleva el recuento de todos los archivos MIDI abiertos en la sesion
@@ -981,7 +1010,7 @@ class Button:
         return [self._render_image, self._position]
 
 
-class Slider:
+class HorizontalSlider:
     def __init__(self,
                  position,
                  bar_size,
@@ -1043,24 +1072,117 @@ class Slider:
     def drag_puller(self):
         self._draggable = True
 
-    def update(self, mouse_coordenates):
-        if mouse_coordenates:
-            x_mouse = mouse_coordenates[0]
-            x_position, y_position = self._position
-            new_position = x_mouse - x_position
-            if new_position < 0:
-                new_position = 0
-            elif new_position > self._size_bar[0]:
-                new_position = self._size_bar[0]
-            self._puller_position = (new_position, self._puller_position[1])
-            self._size_level_marker = (new_position, self._size_level_marker[1])
-        else:
+    def update(self, event_type):
+        if event_type == EVENT_MOUSE_BUTTON_UP:
             self._draggable = False
-            new_level = float(self._puller_position[0]) / float(self._size_bar[0])
+            new_level = float(self._puller_position[1]) / float(self._size_bar[1] - (self._size_puller[1] / 2))
             self._action(new_level)
+        else:
+            if self._draggable:
+                mouse_coordenates = pygame.mouse.get_pos()
+                x_mouse = mouse_coordenates[0]
+                x_position, y_position = self._position
+                new_position = x_mouse - x_position
+                if new_position < 0:
+                    new_position = 0
+                elif new_position > self._size_bar[0]:
+                    new_position = self._size_bar[0]
+                self._puller_position = (new_position, self._puller_position[1])
+                self._size_level_marker = (new_position, self._size_level_marker[1])
+                self._shader = None
+                self.blits_slider()
 
+    def render(self):
+        return [self._shader, self._position]
+
+
+class VerticalSlider:
+    def __init__(self,
+                 position,
+                 bar_size,
+                 puller_size,
+                 function,
+                 params=None,
+                 puller_image='slider_puller_v',
+                 width_level_marker=5,
+                 init_puller_position=1,
+                 get_data_function=None
+                 ):
+        self._type = TYPE_SLIDER_OBJ
+        self._position = position
+        self._puller_position = (0, position[1])
+        self._puller_image_name = puller_image
+        self._puller = pygame.image.load(self._puller_image_name + '.png')
+        self._size_puller = puller_size
+        self._size_bar = bar_size
+        self._size_level_marker = (width_level_marker, self._size_bar[1])
+        self._draggable = False
+        self._level_marker = None
         self._shader = None
+        self._action = function
+        self._shader = None
+        self.function = self.drag_puller
+        self.function_parameters = params
+        self._get_data_function = get_data_function
+        self._puller_position = (
+            self._puller_position[0],
+            self.get_puller_position(init_puller_position)
+        )
+
+        if self._get_data_function:
+            value = self._get_data_function()
+            if value:
+                self._puller_position = (self._puller_position[0], self.get_puller_position(value))
+                self._size_level_marker = (self._size_level_marker[0], self.get_puller_position(value))
+
         self.blits_slider()
+
+    def get_slider(self):
+        return self
+
+    def get_type(self):
+        return self._type
+
+    def get_puller_position(self, value):
+        if hasattr(value, 'value'):
+            value = value.value
+        return int((self._size_bar[1] - self._size_puller[0]) * float(value))
+
+    def get_coordinates(self):
+        return [self._position, self._size_bar]
+
+    def blits_slider(self):
+        self._shader = pygame.Surface(self._size_bar, pygame.SRCALPHA)
+        level_marker = pygame.Surface(self._size_level_marker, pygame.HWSURFACE)
+        level_marker.fill((235, 180, 0))
+        self._shader.blits(((level_marker, (8, 0)), (self._puller, self._puller_position)))
+
+    def drag_puller(self):
+        self._draggable = True
+
+    def update(self, event_type):
+        if event_type == EVENT_MOUSE_BUTTON_UP:
+            self._draggable = False
+            new_level = float(self._puller_position[1]) / float(self._size_bar[1] - (self._size_puller[1] / 2))
+            self._action(self.function_parameters, new_level)
+        elif event_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
+            pass
+        elif event_type == EVENT_MOUSE_CLICK_TO_FOCUS_OUT:
+            pass
+        else:
+            if self._draggable:
+                mouse_coordenates = pygame.mouse.get_pos()
+                y_mouse = mouse_coordenates[1]
+                x_position, y_position = self._position
+                new_position = y_mouse - y_position
+                if new_position < 0:
+                    new_position = 0
+                elif new_position + self._size_puller[1] > self._size_bar[1]:
+                    new_position = self._size_bar[1] - (self._size_puller[1] / 2)
+                self._puller_position = (self._puller_position[0], new_position)
+                self._size_level_marker = (self._size_level_marker[0], new_position)
+                self._shader = None
+                self.blits_slider()
 
     def render(self):
         return [self._shader, self._position]
