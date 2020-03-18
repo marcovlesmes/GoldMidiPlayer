@@ -24,6 +24,7 @@ cx_Freeze.setup(
                 "mute_icon.png",
                 "solo_icon.png",
                 "slider_puller.png",
+                "slider_puller_v.png",
                 "sprite.png",
                 "goldmidi_x32/Scripts/bass.dll",
                 "goldmidi_x32/Scripts/bass_aac.dll",

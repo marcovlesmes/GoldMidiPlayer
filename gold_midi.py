@@ -18,12 +18,14 @@ EVENT_MOUSE_OVER_HOT_SPOT = 1
 EVENT_MOUSE_OVER_OUT_HOT_SPOT = 2
 EVENT_MOUSE_CLICK_TO_FOCUS_OUT = 3
 EVENT_MOUSE_BUTTON_UP = 4
+EVENT_KEY_BACKSPACE = 5
 
 TYPE_TEXT_OBJ = 0
 TYPE_IMAGE_OBJ = 1
 TYPE_BUTTON_OBJ = 2
 TYPE_SLIDER_OBJ = 3
 TYPE_TEXT_FIELD_OBJ = 4
+TYPE_ROLL_BUTTON_OBJ = 5
 
 """
 
@@ -38,6 +40,8 @@ class App:
         self.window_size = (config.getint("interface", "screen-size-x"), config.getint("interface", "screen-size-y"))
         self.screen = pygame.display.set_mode(self.window_size)
         self.clock = pygame.time.Clock()
+        self._events_buffer = []
+        
         self.interface = interface
         self.interface_fields = self.interface.get_fields()
         self.hot_spots = self.get_hot_spots()
@@ -110,11 +114,19 @@ class App:
                     self.interface.change_volume(self.volume)
 
                 if self._active_element and self._active_element.get_type() == TYPE_TEXT_FIELD_OBJ:
-                    self._active_element.update(event.unicode)
+                    if pygame.key.name(event.key) == 'backspace':
+                        self._active_element.update(EVENT_KEY_BACKSPACE)
+                    elif pygame.key.name(event.key) == 'return':
+                        self._active_element.update(EVENT_MOUSE_CLICK_TO_FOCUS_OUT)
+                        self._active_element = None
+                    else:
+                        self._active_element.update(event.unicode)
             elif event.type == pygame.MOUSEBUTTONUP:
-                if self._active_element and self._active_element.get_type() == TYPE_SLIDER_OBJ:
-                    self._active_element.update(EVENT_MOUSE_BUTTON_UP)
-                    self._active_element = None
+                if self._active_element:
+                    obj_type = self._active_element.get_type()
+                    if obj_type == TYPE_SLIDER_OBJ or obj_type == TYPE_ROLL_BUTTON_OBJ:
+                        self._active_element.update(EVENT_MOUSE_BUTTON_UP)
+                        self._active_element = None
 
             if self._active_element and self._active_element.get_type() == TYPE_SLIDER_OBJ:
                 self._active_element.update(pygame.mouse.get_pos())
@@ -273,6 +285,7 @@ class MidiPlayer:
 
     def call_settings_screen(self):
         screen = self.toggle_screen('settings')
+        print(screen)
         if screen:
             self.window_size = (800, 350)
             pygame.display.set_mode(self.window_size)
@@ -296,7 +309,6 @@ class MidiPlayer:
                 self.window_size = (800, 91)
                 pygame.display.set_mode(self.window_size)
                 self.draw_main_screen()
-            self.toggle_screen('settings')
 
         pygame.event.post(
             pygame.event.Event(
@@ -331,8 +343,8 @@ class MidiPlayer:
         ]
         self.fields = [
             HorizontalSlider(
-                (551, 52),
-                (233, 27),
+                (588, 80),
+                (151, 5),
                 (16, 27),
                 function=self.change_volume,
                 get_data_function=self.get_volume
@@ -456,78 +468,132 @@ class MidiPlayer:
             ).get_button(),
             FormField(
                 'Output Port MIDI',
-                (120, 171),
-                (227, 50)
+                (53, 95),
+                (278, 20)
             ).get_form_field()
         ]
-        self.active_screen.append('settings')
+        # self.active_screen.append('settings')
 
     def draw_mixer_screen(self, position=(0, 0)):
         self.images.append(Image('mixer_screen', position).get_image())
         i = 0
         solo_buttons_coords = [
-            (position[0] + 50, position[1] + 126),
-            (position[0] + 95, position[1] + 126),
-            (position[0] + 140, position[1] + 126),
-            (position[0] + 185, position[1] + 126),
-            (position[0] + 231, position[1] + 126),
-            (position[0] + 275, position[1] + 126),
-            (position[0] + 321, position[1] + 126),
-            (position[0] + 365, position[1] + 126),
-            (position[0] + 411, position[1] + 126),
-            (position[0] + 455, position[1] + 126),
-            (position[0] + 501, position[1] + 126),
-            (position[0] + 545, position[1] + 126),
-            (position[0] + 590, position[1] + 126),
-            (position[0] + 635, position[1] + 126),
-            (position[0] + 681, position[1] + 126),
-            (position[0] + 726, position[1] + 126)
+            (position[0] + 25, position[1] + 123),
+            (position[0] + 75, position[1] + 123),
+            (position[0] + 125, position[1] + 123),
+            (position[0] + 175, position[1] + 123),
+            (position[0] + 225, position[1] + 123),
+            (position[0] + 275, position[1] + 123),
+            (position[0] + 325, position[1] + 123),
+            (position[0] + 375, position[1] + 123),
+            (position[0] + 425, position[1] + 123),
+            (position[0] + 475, position[1] + 123),
+            (position[0] + 525, position[1] + 123),
+            (position[0] + 575, position[1] + 123),
+            (position[0] + 625, position[1] + 123),
+            (position[0] + 675, position[1] + 123),
+            (position[0] + 725, position[1] + 123),
+            (position[0] + 775, position[1] + 123)
         ]
         mute_buttons_coords = [
-            (position[0] + 66, position[1] + 126),
-            (position[0] + 110, position[1] + 126),
-            (position[0] + 155, position[1] + 126),
-            (position[0] + 200, position[1] + 126),
-            (position[0] + 246, position[1] + 126),
-            (position[0] + 291, position[1] + 126),
-            (position[0] + 335, position[1] + 126),
-            (position[0] + 381, position[1] + 126),
-            (position[0] + 426, position[1] + 126),
-            (position[0] + 470, position[1] + 126),
-            (position[0] + 516, position[1] + 126),
-            (position[0] + 561, position[1] + 126),
-            (position[0] + 605, position[1] + 126),
-            (position[0] + 650, position[1] + 126),
-            (position[0] + 695, position[1] + 126),
-            (position[0] + 740, position[1] + 126)
+            (position[0] + 6, position[1] + 123),
+            (position[0] + 56, position[1] + 123),
+            (position[0] + 106, position[1] + 123),
+            (position[0] + 156, position[1] + 123),
+            (position[0] + 206, position[1] + 123),
+            (position[0] + 256, position[1] + 123),
+            (position[0] + 306, position[1] + 123),
+            (position[0] + 356, position[1] + 123),
+            (position[0] + 406, position[1] + 123),
+            (position[0] + 456, position[1] + 123),
+            (position[0] + 506, position[1] + 123),
+            (position[0] + 556, position[1] + 123),
+            (position[0] + 606, position[1] + 123),
+            (position[0] + 656, position[1] + 123),
+            (position[0] + 706, position[1] + 123),
+            (position[0] + 756, position[1] + 123)
         ]
         sliders_coords = [
-            (position[0] + 52, position[1] + 14),
-            (position[0] + 97, position[1] + 14),
-            (position[0] + 142, position[1] + 14),
-            (position[0] + 187, position[1] + 14),
-            (position[0] + 232, position[1] + 14),
-            (position[0] + 277, position[1] + 14),
-            (position[0] + 322, position[1] + 14),
-            (position[0] + 367, position[1] + 14),
-            (position[0] + 412, position[1] + 14),
-            (position[0] + 457, position[1] + 14),
-            (position[0] + 502, position[1] + 14),
-            (position[0] + 547, position[1] + 14),
-            (position[0] + 592, position[1] + 14),
-            (position[0] + 637, position[1] + 14),
-            (position[0] + 682, position[1] + 14),
-            (position[0] + 727, position[1] + 14)
+            (position[0] + 31, position[1] + 28),
+            (position[0] + 81, position[1] + 28),
+            (position[0] + 131, position[1] + 28),
+            (position[0] + 181, position[1] + 28),
+            (position[0] + 231, position[1] + 28),
+            (position[0] + 281, position[1] + 28),
+            (position[0] + 331, position[1] + 28),
+            (position[0] + 381, position[1] + 28),
+            (position[0] + 431, position[1] + 28),
+            (position[0] + 481, position[1] + 28),
+            (position[0] + 531, position[1] + 28),
+            (position[0] + 581, position[1] + 28),
+            (position[0] + 631, position[1] + 28),
+            (position[0] + 681, position[1] + 28),
+            (position[0] + 731, position[1] + 28),
+            (position[0] + 781, position[1] + 28)
+        ]
+        rev_buttons_coords = [
+            (position[0] + 8, position[1] + 37),
+            (position[0] + 58, position[1] + 37),
+            (position[0] + 108, position[1] + 37),
+            (position[0] + 158, position[1] + 37),
+            (position[0] + 208, position[1] + 37),
+            (position[0] + 258, position[1] + 37),
+            (position[0] + 308, position[1] + 37),
+            (position[0] + 358, position[1] + 37),
+            (position[0] + 408, position[1] + 37),
+            (position[0] + 458, position[1] + 37),
+            (position[0] + 508, position[1] + 37),
+            (position[0] + 558, position[1] + 37),
+            (position[0] + 608, position[1] + 37),
+            (position[0] + 658, position[1] + 37),
+            (position[0] + 708, position[1] + 37),
+            (position[0] + 758, position[1] + 37)
+        ]
+        chorus_buttons_coords = [
+            (position[0] + 8, position[1] + 67),
+            (position[0] + 58, position[1] + 67),
+            (position[0] + 108, position[1] + 67),
+            (position[0] + 158, position[1] + 67),
+            (position[0] + 208, position[1] + 67),
+            (position[0] + 258, position[1] + 67),
+            (position[0] + 308, position[1] + 67),
+            (position[0] + 358, position[1] + 67),
+            (position[0] + 408, position[1] + 67),
+            (position[0] + 458, position[1] + 67),
+            (position[0] + 508, position[1] + 67),
+            (position[0] + 558, position[1] + 67),
+            (position[0] + 608, position[1] + 67),
+            (position[0] + 658, position[1] + 67),
+            (position[0] + 708, position[1] + 67),
+            (position[0] + 758, position[1] + 67)
+        ]
+        pan_buttons_coords = [
+            (position[0] + 8, position[1] + 97),
+            (position[0] + 58, position[1] + 97),
+            (position[0] + 108, position[1] + 97),
+            (position[0] + 158, position[1] + 97),
+            (position[0] + 208, position[1] + 97),
+            (position[0] + 258, position[1] + 97),
+            (position[0] + 308, position[1] + 97),
+            (position[0] + 358, position[1] + 97),
+            (position[0] + 408, position[1] + 97),
+            (position[0] + 458, position[1] + 97),
+            (position[0] + 508, position[1] + 97),
+            (position[0] + 558, position[1] + 97),
+            (position[0] + 608, position[1] + 97),
+            (position[0] + 658, position[1] + 97),
+            (position[0] + 708, position[1] + 97),
+            (position[0] + 758, position[1] + 97)
         ]
         while i < len(self.mixer_channels):
             self.fields.append(
                 Button(
                     'solo_icon',
                     solo_buttons_coords[i],
-                    (13, 15),
+                    (19, 15),
                     self.solo_track,
                     params=i,
-                    hover_image_size=(12, 16),
+                    hover_image_size=(19, 15),
                     source_image_offset=(358, 40),
                     image_over='sprite'
                 ).get_button()
@@ -536,21 +602,50 @@ class MidiPlayer:
                 Button(
                     'mute_icon',
                     mute_buttons_coords[i],
-                    (13, 15),
+                    (19, 15),
                     self.mute_track,
                     params=i,
-                    hover_image_size=(12, 16),
-                    source_image_offset=(358, 57),
+                    hover_image_size=(19, 15),
+                    source_image_offset=(358, 55),
                     image_over='sprite'
                 ).get_button()
             )
             self.fields.append(
                 VerticalSlider(
                     sliders_coords[i],
-                    (20, 84),
+                    (20, 87),
                     (16, 27),
-                    self.change_channel_volume,
+                    function=self.set_channel_volume,
+                    params=i,
+                    get_data_function=self.get_channel_volume
                 ).get_slider()
+            )
+            self.fields.append(
+                RollButton(
+                    pan_buttons_coords[i],
+                    (21, 18),
+                    self.set_channel_pan,
+                    i,
+                    init_sprite_position=172
+                ).get_roll_button()
+            )
+            self.fields.append(
+                RollButton(
+                    rev_buttons_coords[i],
+                    (21, 18),
+                    self.set_channel_rev,
+                    i,
+                    init_sprite_position=109
+                ).get_roll_button()
+            )
+            self.fields.append(
+                RollButton(
+                    chorus_buttons_coords[i],
+                    (21, 18),
+                    self.set_channel_chorus,
+                    i,
+                    init_sprite_position=109
+                ).get_roll_button()
             )
             i += 1
 
@@ -610,7 +705,7 @@ class MidiPlayer:
             if file_type_supported:
                 sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(str(new_sound_font), 0), -1, 0)
 
-                if self.hstream_handle is not None and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
+                if self.hstream_handle is not None:
                     BASS_MIDI_StreamSetFonts(self.hstream_handle, sound_font, 1)
 
                 BASS_MIDI_StreamSetFonts(0, sound_font, 1)
@@ -801,11 +896,6 @@ class MidiPlayer:
             self._file_position = '0:00:00'
         return str(self._file_position)
 
-    def get_help_text(self):
-        obj = self.acti
-        if obj and hasattr(obj, 'help_text'):
-            return obj.help_text
-
     def solo_track(self, channel):
         if self.mixer_channels[channel]['solo']:
             self.mixer_channels[channel]['solo'] = False
@@ -836,8 +926,27 @@ class MidiPlayer:
             self.mixer_channels[channel]['mute'] = True
             BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_VOLUME, 0)
 
-    def change_channel_volume(self, channel, volume):
-        print(channel, volume)
+    def set_channel_volume(self, channel, value):
+        # volume level (0-127)
+        BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_VOLUME, int(value))
+
+    def set_channel_pan(self, channel, value):
+        # TODO: Buscar en self.mixer la info del canal, actualizar el valor y escribir funcion para cambiar el paneo
+        # pan position (0-128, 0=left, 64=middle, 127=right
+        BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_PAN, int(value))
+        print(channel, value)
+
+    def set_channel_rev(self, channel, value):
+        BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_REVERB, int(value))
+        print(channel, value)
+
+    def set_channel_chorus(self, channel, value):
+        BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_CHORUS, int(value))
+        print(channel, value)
+
+    def get_channel_volume(self, channel):
+        print('Channel X: 1')
+        return 1
 
 
 """
@@ -868,6 +977,40 @@ class Playlist:
         return name.split('.')[0]
 
     def change_file_to_play(self, index):
+        pass
+
+
+class ObjectWithStates:
+    def __init__(self, position, size, init_state):
+        self.position = position
+        self.size = size
+        self.state = init_state
+
+    def start(self):
+
+    # ON_MOUSE_OVER, ON_MOUSE_OFF, ON_MOUSE_CLICK, ON_DRAG, ON_KEY_PRESS, ON_KEY_RELEASE
+    def update(self, event_type):
+        pass
+
+    def get_object(self):
+        return self
+
+    def get_coordinates(self):
+        pass
+
+    def idle_state_animation(self):
+        pass
+
+    def over_state_animation(self):
+        pass
+
+    def active_state_animation(self):
+        pass
+
+    def deactivate_state_animation(self):
+        pass
+
+    def render(self):
         pass
 
 
@@ -903,11 +1046,6 @@ class Text:
 
     def render(self):
         return [self.render_text, self.position]
-
-
-"""
-Button Class
-"""
 
 
 class Button:
@@ -1130,10 +1268,10 @@ class VerticalSlider:
         )
 
         if self._get_data_function:
-            value = self._get_data_function()
+            value = self._get_data_function(self.function_parameters)
             if value:
                 self._puller_position = (self._puller_position[0], self.get_puller_position(value))
-                self._size_level_marker = (self._size_level_marker[0], self.get_puller_position(value))
+                self._size_level_marker = (self._size_level_marker[0], self._size_bar[1])
 
         self.blits_slider()
 
@@ -1146,7 +1284,8 @@ class VerticalSlider:
     def get_puller_position(self, value):
         if hasattr(value, 'value'):
             value = value.value
-        return int((self._size_bar[1] - self._size_puller[0]) * float(value))
+        print(int(self._size_bar[1] * value) - self._size_bar[1], value)
+        return int(self._size_bar[1] * value) - self._size_bar[1]
 
     def get_coordinates(self):
         return [self._position, self._size_bar]
@@ -1155,20 +1294,21 @@ class VerticalSlider:
         self._shader = pygame.Surface(self._size_bar, pygame.SRCALPHA)
         level_marker = pygame.Surface(self._size_level_marker, pygame.HWSURFACE)
         level_marker.fill((235, 180, 0))
-        self._shader.blits(((level_marker, (8, 0)), (self._puller, self._puller_position)))
+        self._shader.blits(((level_marker, (8, self._puller_position[1])), (self._puller, self._puller_position)))
 
-    def drag_puller(self):
+    def drag_puller(self, channel):
         self._draggable = True
+
+    def scale_value_in_range(self, old_range, new_range, value):
+        return ((value - old_range[0]) * (new_range[1] + new_range[0]) / (old_range[1] + old_range[0])) + new_range[0]
 
     def update(self, event_type):
         if event_type == EVENT_MOUSE_BUTTON_UP:
             self._draggable = False
-            new_level = float(self._puller_position[1]) / float(self._size_bar[1] - (self._size_puller[1] / 2))
-            self._action(self.function_parameters, new_level)
-        elif event_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
-            pass
-        elif event_type == EVENT_MOUSE_CLICK_TO_FOCUS_OUT:
-            pass
+            axis_level_size = self._size_bar[1] - (self._size_puller[1] / 2)
+            new_level = float(axis_level_size - self._puller_position[1])
+            value = self.scale_value_in_range((0, axis_level_size), (0, 127), new_level)
+            self._action(self.function_parameters, value)
         else:
             if self._draggable:
                 mouse_coordenates = pygame.mouse.get_pos()
@@ -1177,12 +1317,74 @@ class VerticalSlider:
                 new_position = y_mouse - y_position
                 if new_position < 0:
                     new_position = 0
-                elif new_position + self._size_puller[1] > self._size_bar[1]:
+                elif new_position + (self._size_puller[1] / 2) > self._size_bar[1]:
                     new_position = self._size_bar[1] - (self._size_puller[1] / 2)
                 self._puller_position = (self._puller_position[0], new_position)
-                self._size_level_marker = (self._size_level_marker[0], new_position)
+                self._size_level_marker = (self._size_level_marker[0], self._size_bar[1])
                 self._shader = None
                 self.blits_slider()
+
+    def render(self):
+        return [self._shader, self._position]
+
+
+class RollButton:
+    def __init__(self, position, size, function, params, init_sprite_position, image='sprite'):
+        self._position = position
+        self._size = size
+        self._action = function
+        self._action_params = params
+        self._type = TYPE_ROLL_BUTTON_OBJ
+        self._rolleable = False
+        self._init_mouse_position = None
+        self._value = None
+        self._sprite = pygame.image.load(image + '.png')
+        self._sprite_position = init_sprite_position
+        self._shader = pygame.Surface(self._size, pygame.SRCALPHA)
+
+        self.blit_roll_button(self._sprite_position)
+
+    def get_roll_button(self):
+        return self
+
+    def get_type(self):
+        return self._type
+
+    def get_coordinates(self):
+        return [self._position, self._size]
+
+    def function(self):
+        self._rolleable = True
+        self._init_mouse_position = pygame.mouse.get_pos()
+
+    def scale_value_in_range(self, old_range, new_range, value):
+        return ((value - old_range[0]) * (new_range[1] + new_range[0]) / (old_range[1] + old_range[0])) + new_range[0]
+
+    def blit_roll_button(self, position):
+        self._shader.blit(self._sprite, (0, 0), pygame.Rect((position, 124), (21, 18)))
+        if DEBUG:
+            self._shader.fill((255, 255, 0, 125))
+
+    def update(self, event_type):
+        if event_type == EVENT_MOUSE_BUTTON_UP:
+            self._rolleable = False
+            self._init_mouse_position = None
+            value = self.scale_value_in_range((109, -235), (0, 127), self._sprite_position) * -1
+            self._action(self._action_params, value)
+            self._value = None
+        else:
+            if self._rolleable:
+                current_position = pygame.mouse.get_pos()
+                self._value = current_position[0] - self._init_mouse_position[0]
+                if self._value > 0:
+                    self._sprite_position += self._size[0]
+                    if self._sprite_position > 235:
+                        self._sprite_position = 235
+                else:
+                    self._sprite_position -= self._size[0]
+                    if self._sprite_position < 109:
+                        self._sprite_position = 109
+                self.blit_roll_button(self._sprite_position)
 
     def render(self):
         return [self._shader, self._position]
@@ -1229,7 +1431,10 @@ class FormField:
 
     def enter_value(self):
         if self._enabled:
-            self._raw_text += self._new_key
+            if self._new_key == EVENT_KEY_BACKSPACE:
+                self._raw_text = self._raw_text[:-1]
+            else:
+                self._raw_text += self._new_key
             return self._raw_text
 
     def update(self, event_type):
@@ -1244,6 +1449,10 @@ class FormField:
             self._enabled = False
             if self._raw_text == '':
                 self._shader.fill((0, 255, 255, 60))
+        elif event_type == EVENT_KEY_BACKSPACE:
+            self._new_key = EVENT_KEY_BACKSPACE
+            self._text.update()
+            self._shader = self._text.render()[0]
         else:
             if self._enabled:
                 try:
