@@ -1,190 +1,205 @@
 """
 
 """
-
-import pygame, sys, os, time, ConfigParser, datetime
+import pygame, os, time, datetime
 from pybass import *
 from pybass.pybassmidi import *
 from encrypter import SoundCoder
 from Tkinter import Tk
 from tkFileDialog import askopenfilename
 
-config = ConfigParser.RawConfigParser()
-config.read('config.cfg')
-DEBUG = False
+DEBUG = True
 
-EVENT_SCREEN_CHANGE = 0
-EVENT_MOUSE_OVER_HOT_SPOT = 1
-EVENT_MOUSE_OVER_OUT_HOT_SPOT = 2
-EVENT_MOUSE_CLICK_TO_FOCUS_OUT = 3
-EVENT_MOUSE_BUTTON_UP = 4
-EVENT_KEY_BACKSPACE = 5
+WINDOW_INIT_X = 800
+WINDOW_INIT_Y = 91
+WINDOW_PIANO_ROLL_Y = 114
+WINDOW_HELP_TEXT_POSITION = (14, 79)
 
-TYPE_TEXT_OBJ = 0
-TYPE_IMAGE_OBJ = 1
-TYPE_BUTTON_OBJ = 2
-TYPE_SLIDER_OBJ = 3
-TYPE_TEXT_FIELD_OBJ = 4
-TYPE_ROLL_BUTTON_OBJ = 5
+COLOR_YELLOW = (235, 180, 0)
 
+EVENT_ON_SCREEN_CHANGE = 0
+
+EVENT_ON_MOUSE_CLICK_PB = 10
+EVENT_ON_MOUSE_RELEASE = 11
+EVENT_ON_MOUSE_IN = 12
+EVENT_ON_MOUSE_OUT = 13
+EVENT_ON_MOUSE_DRAG = 14
+
+EVENT_ON_KEY_PRESS = 20
+
+STATE_ELEMENT_IDLE = 30
+STATE_ELEMENT_HOVER = 31
+STATE_ELEMENT_ACTIVE = 32
+STATE_ELEMENT_INACTIVE = 33
+
+MAIN_SCREEN = 40
+PIANO_ROLL_SCREEN = 41
+MIXER_SCREEN = 42
+SETTINGS_SCREEN = 43
 """
-
 """
 
 
 class App:
-    def __init__(self, interface):
+    def __init__(self):
         pygame.init()
-        pygame.display.set_caption(config.get("interface", "app-name"))
+        pygame.display.set_caption("Gold Midi Player")
         # Windows Setup
-        self.window_size = (config.getint("interface", "screen-size-x"), config.getint("interface", "screen-size-y"))
-        self.screen = pygame.display.set_mode(self.window_size)
-        self.clock = pygame.time.Clock()
+        self._window_size = (WINDOW_INIT_X, WINDOW_INIT_Y)
+        self._screen = pygame.display.set_mode(self._window_size)
+        self._clock = pygame.time.Clock()
         self._events_buffer = []
-        
-        self.interface = interface
-        self.interface_fields = self.interface.get_fields()
-        self.hot_spots = self.get_hot_spots()
-        self.active_hot_spot = None
-        self._active_element = None
-        self.interface.set_window_size(self.window_size)
-        self.cursor = 'idle'
-        self.event = False
-        self.volume = 1
+        self._targets_area = []
+        self._render_screen = []
+        self._interface = None
+        self.start(MidiPlayer())
 
-    def get_window_size(self):
-        return self.window_size
+    def start(self, interface):
+        """
+        The objects have to register the target_area.
+        :return:
+        """
+        self._interface = interface
+        self._interface.toggle_screen(MAIN_SCREEN)
 
-    def update(self):
-        self.clock.tick(40)
-
+    def event_manager(self):
+        """
+        Check all the targets area registered and register the events
+        :return:
+        """
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 sys.exit()
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if self._active_element:
-                    self._active_element.update(EVENT_MOUSE_CLICK_TO_FOCUS_OUT)
-                element = self.mouse_click_hot_spot(pygame.mouse.get_pos())
-                if element:
-                    self._active_element = element
-                    if hasattr(self._active_element, 'function_parameters')\
-                            and self._active_element.function_parameters is not None:
-                        self._active_element.function(self._active_element.function_parameters)
-                    else:
-                        self._active_element.function()
+            elif len(self._targets_area) > 0:
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    clicked_element = self.get_interaction()
+                    if clicked_element is not None:
+                        self._events_buffer.append([EVENT_ON_MOUSE_CLICK_PB, clicked_element])
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    active_element = self.get_active_element()
+                    if active_element:
+                        self._events_buffer.append([EVENT_ON_MOUSE_RELEASE, active_element])
+                elif event.type == pygame.MOUSEMOTION:
+                    if pygame.mouse.get_focused():
+                        on_element = self.get_interaction()
+                        if on_element and on_element.is_drag_enabled():
+                            self._events_buffer.append([EVENT_ON_MOUSE_DRAG, on_element])
+                        elif on_element:
+                            active_element = self.get_active_element()
+                            if active_element is not on_element:
+                                self._events_buffer.append([EVENT_ON_MOUSE_IN, on_element])
+                        else:
+                            active_element = self.get_active_element()
+                            if active_element and active_element.is_drag_enabled():
+                                self._events_buffer.append([EVENT_ON_MOUSE_DRAG, active_element])
+                            else:
+                                hover_element = self.get_hovered_element()
+                                if hover_element:
+                                    self._events_buffer.append([EVENT_ON_MOUSE_OUT, hover_element])
+                elif event.type == pygame.KEYDOWN:
+                    self._events_buffer.append([EVENT_ON_KEY_PRESS, event])
+            if event.type == pygame.USEREVENT and event.custom_type == EVENT_ON_SCREEN_CHANGE:
+                    self._events_buffer.append([EVENT_ON_SCREEN_CHANGE, event.screen])
+                    pygame.event.clear()
 
-            elif event.type == pygame.MOUSEMOTION:
-                if pygame.mouse.get_focused():
-                    element = self.mouse_over_hot_spot(pygame.mouse.get_pos())
-                    if element:
-                        pygame.event.post(
-                            pygame.event.Event(
-                                pygame.USEREVENT,
-                                custom_type=EVENT_MOUSE_OVER_HOT_SPOT,
-                                index=element
-                            )
-                        )
-                        if self.active_hot_spot and self.active_hot_spot != element:
-                            pygame.event.post(
-                                pygame.event.Event(
-                                    pygame.USEREVENT,
-                                    custom_type=EVENT_MOUSE_OVER_OUT_HOT_SPOT,
-                                    index=self.active_hot_spot
-                                )
-                            )
-                        self.active_hot_spot = element
-                    else:
-                        if self.active_hot_spot:
-                            pygame.event.post(
-                                pygame.event.Event(
-                                    pygame.USEREVENT,
-                                    custom_type=EVENT_MOUSE_OVER_OUT_HOT_SPOT,
-                                    index=self.active_hot_spot
-                                )
-                            )
-                            self.active_hot_spot = None
-            elif event.type == pygame.KEYDOWN:
-                if pygame.key.name(event.key) == 'up':
-                    self.volume += 0.3
-                    if self.volume > 1: self.volume = 1
-                    self.interface.change_volume(self.volume)
-                elif pygame.key.name(event.key) == 'down':
-                    self.volume -= 0.3
-                    if self.volume < 0: self.volume = 0
-                    self.interface.change_volume(self.volume)
+    def event_exec(self):
+        """
+        Execute all the events on the buffer
+        :return:
+        """
+        for event in self._events_buffer:
+            event_type, event_data = event[0], event[1]
+            if event_type == EVENT_ON_SCREEN_CHANGE:
+                self.update_screen()
+            elif event_type == EVENT_ON_MOUSE_OUT:
+                event_data.update(EVENT_ON_MOUSE_OUT)
+            elif event_type == EVENT_ON_MOUSE_IN:
+                event_data.update(EVENT_ON_MOUSE_IN)
+            elif event_type == EVENT_ON_MOUSE_CLICK_PB:
+                event_data.update(EVENT_ON_MOUSE_CLICK_PB)
+            elif event_type == EVENT_ON_MOUSE_RELEASE:
+                event_data.update(EVENT_ON_MOUSE_RELEASE)
+            elif event_type == EVENT_ON_MOUSE_DRAG:
+                event_data.update(EVENT_ON_MOUSE_DRAG)
+            print(event)
 
-                if self._active_element and self._active_element.get_type() == TYPE_TEXT_FIELD_OBJ:
-                    if pygame.key.name(event.key) == 'backspace':
-                        self._active_element.update(EVENT_KEY_BACKSPACE)
-                    elif pygame.key.name(event.key) == 'return':
-                        self._active_element.update(EVENT_MOUSE_CLICK_TO_FOCUS_OUT)
-                        self._active_element = None
-                    else:
-                        self._active_element.update(event.unicode)
-            elif event.type == pygame.MOUSEBUTTONUP:
-                if self._active_element:
-                    obj_type = self._active_element.get_type()
-                    if obj_type == TYPE_SLIDER_OBJ or obj_type == TYPE_ROLL_BUTTON_OBJ:
-                        self._active_element.update(EVENT_MOUSE_BUTTON_UP)
-                        self._active_element = None
+        self._events_buffer = []
 
-            if self._active_element and self._active_element.get_type() == TYPE_SLIDER_OBJ:
-                self._active_element.update(pygame.mouse.get_pos())
-                self._active_element.render()
-            try:
-                if event.type == pygame.USEREVENT and event.custom_type == EVENT_MOUSE_OVER_HOT_SPOT:
-                    self.interface_fields[event.index].update(event.custom_type)
-                if event.type == pygame.USEREVENT and event.custom_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
-                    self.interface_fields[event.index].update(event.custom_type)
-                if event.type == pygame.USEREVENT and event.custom_type == EVENT_SCREEN_CHANGE:
-                    self.interface_fields = self.interface.get_fields()
-                    self.hot_spots = self.get_hot_spots()
-                    self.active_hot_spot = None
-                    pygame.event.clear(pygame.USEREVENT)
-            except IndexError:
-                print('Not element with Index on event. Index: ', pygame.event.get())
+    def update_screen(self):
+        self._render_screen = self._interface.render()
+        self.get_targets_areas()
 
+    def update(self):
+        """
+        Have to call the event_manager
+        Refresh the screen
+        :return:
+        """
+        self._clock.tick(40)
+        self.event_manager()
+        self.event_exec()
         self.refresh_screen()
 
-    """ Reconoce cuando el cursor esta sobre algun punto interactivo (Hot Spot) """
-    def mouse_over_hot_spot(self, (x, y)):
-        index = 0
+    def send_key_pressed(self):
+        """
 
-        for element in self.hot_spots:
-            if element[0][0] < x < (element[0][0] + element[1][0]):
-                if element[0][1] < y < (element[0][1] + element[1][1]):
-                    return index
-            index += 1
+        :return:
+        """
+        print(pygame.key.name)
+
+    def get_window_size(self):
+        return self._window_size
+
+    def get_targets_areas(self):
+        if len(self._render_screen) > 0:
+            over_map = []
+            for field in self._render_screen:
+                if field.has_target():
+                    over_map.append(field)
+            self._targets_area = over_map
+        else:
+            print('WARNING: There is nothing loaded in the screen. Interface must be started.')
+
+    def get_active_element(self):
+        if len(self._render_screen) > 0:
+            for element in self._render_screen:
+                if element.get_state() == STATE_ELEMENT_ACTIVE:
+                    return element
+        return False
+
+    def get_hovered_element(self):
+        if len(self._render_screen) > 0:
+            for element in self._render_screen:
+                if element.get_state() == STATE_ELEMENT_HOVER:
+                    return element
+        return False
+
+    def get_interaction(self):
+        """
+        Return the index of the element when the cursor are over it
+        :return:
+        """
+        x, y = pygame.mouse.get_pos()
+
+        for element in self._targets_area:
+            element_coords = element.get_coordinates()
+            if element_coords[0][0] < x < (element_coords[0][0] + element_coords[1][0]):
+                if element_coords[0][1] < y < (element_coords[0][1] + element_coords[1][1]):
+                    return element
 
         return None
 
-    def mouse_click_hot_spot(self, (x, y)):
-        for field in self.interface_fields:
-            (button_x, button_y), (button_width, button_height) = field.get_coordinates()
-
-            if button_x < x < (button_x + button_width):
-                if button_y < y < (button_y + button_height):
-                    return field
-
-        return False
-
-    def get_hot_spots(self):
-        over_map = []
-        for field in self.interface_fields:
-            over_map.append(field.get_coordinates())
-        return over_map
-
     def refresh_screen(self):
-        self.screen.fill((0, 0, 0))
-        to_render = self.interface.refresh_screen()
+        """
+        Render all the list of elements
+        :return:
+        """
+        self._screen.fill((0, 0, 0))
 
-        for element in to_render:
-            self.screen.blit(element[0], element[1])
+        for element in self._render_screen:
+            self._screen.blit(element.get_surface(), element.get_position())
         pygame.display.update()
 
-"""
-
-"""
 
 class MidiPlayer:
     def __init__(self):
@@ -196,10 +211,6 @@ class MidiPlayer:
         self.GOLD_MIDI_PAUSED = 0
         self.GOLD_MIDI_PLAYING = 1
 
-        self.fields = []
-        self.images = []
-        self.texts = []
-        self.clock = pygame.time.Clock()
         self.hstream_handle = None
         self.mixer_channels = []
         self._global_volume = 1.0
@@ -208,274 +219,182 @@ class MidiPlayer:
         self.sound_font = 'default.csf'
         self.playlist = Playlist()
         self.window_size = None
-        self.active_screen = []
+        self._screen_elements = []
+        self._active_screens = []
+        self.start()
 
-        """
-        Loading a default sound font
-        """
+    def start(self):
         sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(self.sound_font, 0), -1, 0)
         BASS_MIDI_StreamSetFonts(0, sound_font, 1)
-        """
-        END of loading a default sound font
-        """
-        self.call_main_screen()
-
-    def call_main_screen(self):
-        screen = self.toggle_screen('main')
-        if screen:
-            self.draw_main_screen()
-
-    def call_mixer_screen(self):
-        screen = self.toggle_screen('mixer')
-        if screen:
-            self.window_size = (self.window_size[0], self.window_size[1] + 144)
-            pygame.display.set_mode(self.window_size)
-            position = (0, 91)
-            if 'piano_roll' in self.active_screen:
-                self.draw_main_screen()
-                self.draw_mixer_screen(position)
-                position_piano_roll_screen = (0, position[1] + 144)
-                self.draw_piano_roll(position_piano_roll_screen)
-            else:
-                self.draw_mixer_screen(position)
-        else:
-            self.window_size = (self.window_size[0], self.window_size[1] - 144)
-            pygame.display.set_mode(self.window_size)
-            if 'piano_roll' in self.active_screen:
-                self.draw_main_screen()
-                position_piano_roll_screen = (0, 91)
-                self.draw_piano_roll(position_piano_roll_screen)
-            else:
-                self.draw_main_screen()
-
-        pygame.event.post(
-            pygame.event.Event(
-                pygame.USEREVENT,
-                custom_type=EVENT_SCREEN_CHANGE
-            )
-        )
-
-    def call_piano_roll_screen(self):
-        screen = self.toggle_screen('piano_roll')
-        if screen:
-            self.window_size = (self.window_size[0], self.window_size[1] + 114)
-            pygame.display.set_mode(self.window_size)
-            if 'mixer' in self.active_screen:
-                self.draw_main_screen()
-                self.draw_mixer_screen((0, 91))
-                self.draw_piano_roll((0, 235))
-            else:
-                position = (0, 91)
-                self.draw_piano_roll(position)
-        else:
-            self.window_size = (self.window_size[0], self.window_size[1] - 114)
-            pygame.display.set_mode(self.window_size)
-            if 'mixer' in self.active_screen:
-                self.draw_main_screen()
-                self.draw_mixer_screen((0, 91))
-            else:
-                self.draw_main_screen()
-
-        pygame.event.post(
-            pygame.event.Event(
-                pygame.USEREVENT,
-                custom_type=EVENT_SCREEN_CHANGE
-            )
-        )
-
-    def call_settings_screen(self):
-        screen = self.toggle_screen('settings')
-        print(screen)
-        if screen:
-            self.window_size = (800, 350)
-            pygame.display.set_mode(self.window_size)
-            self.draw_settings_screen()
-        else:
-            if 'mixer' in self.active_screen and 'piano_roll' in self.active_screen:
-                self.draw_main_screen()
-                self.draw_mixer_screen((0, 91))
-                self.draw_piano_roll((0, 235))
-            elif 'mixer' in self.active_screen:
-                self.window_size = (800, 235)
-                pygame.display.set_mode(self.window_size)
-                self.draw_main_screen()
-                self.draw_mixer_screen((0, 91))
-            elif 'piano_roll' in self.active_screen:
-                self.window_size = (800, 235)
-                pygame.display.set_mode(self.window_size)
-                self.draw_main_screen()
-                self.draw_piano_roll((0, 91))
-            else:
-                self.window_size = (800, 91)
-                pygame.display.set_mode(self.window_size)
-                self.draw_main_screen()
-
-        pygame.event.post(
-            pygame.event.Event(
-                pygame.USEREVENT,
-                custom_type=EVENT_SCREEN_CHANGE
-            )
-        )
+        return self
 
     def toggle_screen(self, screen):
-        if screen in self.active_screen:
-            self.active_screen.remove(screen)
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                custom_type=EVENT_ON_SCREEN_CHANGE,
+                screen=screen
+            )
+        )
+        if screen in self._active_screens:
+            self._active_screens.remove(screen)
             return False
         else:
-            self.active_screen.append(screen)
+            self._active_screens.append(screen)
             return True
+
+    def render(self):
+        self._screen_elements = []
+        if SETTINGS_SCREEN in self._active_screens:
+            self._screen_elements = self.draw_settings_screen()
+        else:
+            if MAIN_SCREEN in self._active_screens:
+                self._screen_elements = self.draw_main_screen()
+            if PIANO_ROLL_SCREEN in self._active_screens:
+                self._screen_elements.append(self.draw_piano_roll((0, WINDOW_INIT_Y)))
+            if MIXER_SCREEN in self._active_screens:
+                self._screen_elements.append(self.draw_mixer_screen((0, WINDOW_INIT_Y + WINDOW_PIANO_ROLL_Y)))
+            elif MIXER_SCREEN in self._active_screens:
+                self._screen_elements.append(self.draw_mixer_screen((0, WINDOW_INIT_Y)))
+        return self._screen_elements
 
     def set_window_size(self, size):
         self.window_size = size
 
     def draw_main_screen(self):
-        self.texts = [
-            Text('MIDI Name', self.GOLD_MIDI_NAME_POSITION).get_text(),
-            Text('MIDI Time', self.GOLD_MIDI_TIME_POSITION).get_text(),
+        return [
+            Image(name='main_screen', position=(0, 0), size=(WINDOW_INIT_X, WINDOW_INIT_Y)),
+            Text(content='MIDI Name', position=self.GOLD_MIDI_NAME_POSITION),
+            Text(content='MIDI Time', position=self.GOLD_MIDI_TIME_POSITION),
             Text(
-                'MIDI Current Time',
-                self.GOLD_MIDI_TIMECOUNT_POSITION,
+                content='MIDI Current Time',
+                position=self.GOLD_MIDI_TIMECOUNT_POSITION,
                 update_function=self.get_counter_midi
-            ).get_text()
-        ]
-        self.images = [
-            Image('main_screen', (0, 0)).get_image()
-        ]
-        self.fields = [
+            ),
             HorizontalSlider(
-                (588, 80),
-                (151, 5),
-                (16, 27),
-                function=self.change_volume,
+                name='slider_puller',
+                position=(588, 80),
+                size=(151, 5),
+                puller_size=(10, 10),
+                action=self.change_volume,
                 get_data_function=self.get_volume
-            ).get_slider(),
+            ),
             Button(
-                'open_file',
-                (213, 3),
-                (37, 37),
-                self.open_new_midi,
-                hover_image_size=(41, 40),
-                source_image_offset=(81, 0),
-                image_over='sprite',
+                name='open_file',
+                position=(213, 3),
+                size=(37, 37),
+                action=self.open_new_midi,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (81, 0)],
                 help_text='Open new MIDI file'
-            ).get_button(),
+            ),
             Button(
-                'mixer',
-                (591, 3),
-                (37, 37),
-                self.call_mixer_screen,
-                hover_image_size=(41, 41),
-                source_image_offset=(161, 0),
-                image_over='sprite',
+                name='mixer',
+                position=(591, 3),
+                size=(37, 37),
+                action=self.toggle_screen,
+                params_action=MIXER_SCREEN,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (161, 0)],
                 help_text='Show/Hide Mixer'
-            ).get_button(),
+            ),
             Button(
-                'piano_roll',
-                (634, 3),
-                (37, 37),
-                self.call_piano_roll_screen,
-                hover_image_size=(41, 41),
-                source_image_offset=(203, 0),
-                image_over='sprite',
+                name='piano_roll',
+                position=(634, 3),
+                size=(37, 37),
+                action=self.toggle_screen,
+                params_action=PIANO_ROLL_SCREEN,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (203, 0)],
                 help_text='Show/Hide Piano roll'
-            ).get_button(),
+            ),
             Button(
-                'open_sound_font',
-                (674, 3),
-                (37, 37),
-                self.load_sound_font,
-                hover_image_size=(41, 41),
-                source_image_offset=(243, 0),
-                image_over='sprite',
+                name='open_sound_font',
+                position=(674, 3),
+                size=(37, 37),
+                action=self.load_sound_font,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (243, 0)],
                 help_text='Open new SoundFont file'
-            ).get_button(),
+            ),
             Button(
-                'convert_to_csf',
-                (716, 3),
-                (37, 37),
-                self.convert_sf2_to_csf,
-                hover_image_size=(41, 41),
-                source_image_offset=(285, 0),
-                image_over='sprite',
+                name='convert_to_csf',
+                position=(716, 3),
+                size=(37, 37),
+                action=self.convert_sf2_to_csf,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (285, 0)],
                 help_text='Convert SF2 to CSF format'
-            ).get_button(),
+            ),
             Button(
-                'settings',
-                (757, 3),
-                (37, 37),
-                self.call_settings_screen,
-                hover_image_size=(41, 41),
-                source_image_offset=(325, 0),
-                image_over='sprite',
+                name='settings',
+                position=(757, 3),
+                size=(37, 37),
+                action=self.toggle_screen,
+                params_action=SETTINGS_SCREEN,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (325, 0)],
                 help_text='Toggle Settings Screen'
-            ).get_button(),
+            ),
             Button(
-                'rewind',
-                (294, 47),
-                (37, 37),
-                self.rewind,
-                hover_image_size=(41, 41),
-                source_image_offset=(148, 84),
-                image_over='sprite',
+                name='rewind',
+                position=(294, 47),
+                size=(37, 37),
+                action=self.rewind,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (148, 84)],
                 help_text='Rewind'
-            ).get_button(),
+            ),
             Button(
-                'playing',
-                (337, 47),
-                (37, 37),
-                self.playing,
-                hover_image_size=(41, 41),
-                source_image_offset=(191, 84),
-                image_over='sprite',
+                name='playing',
+                position=(337, 47),
+                size=(37, 37),
+                action=self.playing,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (191, 84), (192, 40)],
                 help_text='Play'
-            ).get_button(),
+            ),
             Button(
-                'stop',
-                (380, 47),
-                (37, 37),
-                self.stop,
-                hover_image_size=(41, 41),
-                source_image_offset=(233, 84),
-                image_over='sprite',
+                name='stop',
+                position=(380, 47),
+                size=(37, 37),
+                action=self.stop,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (233, 84)],
                 help_text='Stop'
-            ).get_button(),
+            ),
             Button(
-                'forward',
-                (421, 47),
-                (37, 37),
-                self.forward,
-                hover_image_size=(41, 41),
-                source_image_offset=(274, 84),
-                image_over='sprite',
+                name='forward',
+                position=(421, 47),
+                size=(37, 37),
+                action=self.forward,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (274, 84)],
                 help_text='Forward'
-            ).get_button()
+            )
         ]
 
     def draw_settings_screen(self):
-        self.texts = []
-        self.images = [
-            Image('settings_screen', (0, 0)).get_image()
-        ]
-        self.fields = [
+        return [
+            Image('settings_screen', (0, 0)),
             Button(
-                'settings',
-                (757, 3),
-                (37, 37),
-                self.call_settings_screen,
-                hover_image_size=(41, 41),
-                source_image_offset=(325, 0),
-                image_over='sprite'
-            ).get_button(),
+                name='settings',
+                position=(757, 3),
+                size=(37, 37),
+                action=self.toggle_screen,
+                params_action=SETTINGS_SCREEN,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (325, 0)],
+                help_text='Toggle Settings Screen'
+            ),
             FormField(
                 'Output Port MIDI',
                 (53, 95),
                 (278, 20)
             ).get_form_field()
         ]
-        # self.active_screen.append('settings')
 
     def draw_mixer_screen(self, position=(0, 0)):
-        self.images.append(Image('mixer_screen', position).get_image())
         i = 0
         solo_buttons_coords = [
             (position[0] + 25, position[1] + 123),
@@ -585,8 +504,9 @@ class MidiPlayer:
             (position[0] + 708, position[1] + 97),
             (position[0] + 758, position[1] + 97)
         ]
+        elements = [Image('mixer_screen', position).get_image()]
         while i < len(self.mixer_channels):
-            self.fields.append(
+            elements.append(
                 Button(
                     'solo_icon',
                     solo_buttons_coords[i],
@@ -598,7 +518,7 @@ class MidiPlayer:
                     image_over='sprite'
                 ).get_button()
             )
-            self.fields.append(
+            elements.append(
                 Button(
                     'mute_icon',
                     mute_buttons_coords[i],
@@ -610,7 +530,7 @@ class MidiPlayer:
                     image_over='sprite'
                 ).get_button()
             )
-            self.fields.append(
+            elements.append(
                 VerticalSlider(
                     sliders_coords[i],
                     (20, 87),
@@ -620,7 +540,7 @@ class MidiPlayer:
                     get_data_function=self.get_channel_volume
                 ).get_slider()
             )
-            self.fields.append(
+            elements.append(
                 RollButton(
                     pan_buttons_coords[i],
                     (21, 18),
@@ -629,7 +549,7 @@ class MidiPlayer:
                     init_sprite_position=172
                 ).get_roll_button()
             )
-            self.fields.append(
+            elements.append(
                 RollButton(
                     rev_buttons_coords[i],
                     (21, 18),
@@ -638,7 +558,7 @@ class MidiPlayer:
                     init_sprite_position=109
                 ).get_roll_button()
             )
-            self.fields.append(
+            elements.append(
                 RollButton(
                     chorus_buttons_coords[i],
                     (21, 18),
@@ -648,37 +568,10 @@ class MidiPlayer:
                 ).get_roll_button()
             )
             i += 1
+        return elements
 
     def draw_piano_roll(self, position=(0, 0)):
-        self.images.append(Image('piano_roll_screen', position).get_image())
-
-    def index_forms(self):
-        index = 0
-        for element in self.fields:
-            element['index'] = index
-            index += 1
-
-    """
-    Convert all the fields (fields, images, _text, forms, etc...) to be render like a plain image
-    """
-    def refresh_screen(self):
-        buffering = []
-
-        for image in self.images:
-            buffering.append([image.shader, image.position])
-
-        for text in self.texts:
-            if text.is_dynamic:
-                text.update()
-            buffering.append(text.render())
-
-        for button in self.fields:
-            buffering.append(button.render())
-
-        return buffering
-
-    def get_fields(self):
-        return self.fields
+        return [Image('piano_roll_screen', position).get_image()]
 
     def load_sound_font(self):
         Tk().withdraw()
@@ -853,20 +746,13 @@ class MidiPlayer:
                         else:
                             print('No track', str(binascii.hexlify(id)).upper())
                             break
-
-                if 'mixer' in self.active_screen:
-                    self.call_mixer_screen()
-                    self.call_mixer_screen()
                 """
                 MIXER IMPLEMENTATION END
                 """
                 file_size = BASS_ChannelGetLength(self.hstream_handle, BASS_POS_BYTE)
                 file_lenght_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_size)
-
                 file_name = self.playlist.add_new_file(new_midi)
-                # TODO: Modificar funcion para que no sea por index
-                self.texts[0] = Text(file_name, self.GOLD_MIDI_NAME_POSITION).get_text()
-                self.texts[1] = self.format_time(file_lenght_seconds)
+
                 if self.hstream_handle:
                     self.playing()
                 else:
@@ -981,258 +867,391 @@ class Playlist:
 
 
 class ObjectWithStates:
-    def __init__(self, position, size, init_state):
-        self.position = position
-        self.size = size
-        self.state = init_state
-
-    def start(self):
-
-    # ON_MOUSE_OVER, ON_MOUSE_OFF, ON_MOUSE_CLICK, ON_DRAG, ON_KEY_PRESS, ON_KEY_RELEASE
-    def update(self, event_type):
-        pass
-
-    def get_object(self):
-        return self
-
-    def get_coordinates(self):
-        pass
-
-    def idle_state_animation(self):
-        pass
-
-    def over_state_animation(self):
-        pass
-
-    def active_state_animation(self):
-        pass
-
-    def deactivate_state_animation(self):
-        pass
-
-    def render(self):
-        pass
-
-
-class Text:
-    def __init__(self, content, position, font=None, size=16, update_function=None):
-        self.position = position
-        self.font_family = font
-        self.size_font = size
-        self.render_text = None
-        self.is_dynamic = False
-        self.update_function = update_function
-
-        if not pygame.font.get_init():
-            pygame.font.init()
-        text = pygame.font.Font(self.font_family, self.size_font)
-        surface = text.render(content, True, (255, 255, 255))
-        self.render_text = surface
-
-        if self.update_function is not None:
-            self.is_dynamic = True
-
-    def get_text(self):
-        return self
-
-    def get_type(self):
-        return TYPE_TEXT_OBJ
-
-    def update(self):
-        if self.is_dynamic:
-            text = pygame.font.Font(self.font_family, self.size_font)
-            surface = text.render(self.update_function(), True, (255, 255, 255))
-            self.render_text = surface
-
-    def render(self):
-        return [self.render_text, self.position]
-
-
-class Button:
     def __init__(
             self,
-            file_name,
+            name,
             position,
             size,
-            function,
-            params=None,
-            hover_image_size=(0, 0),
-            source_image_offset=(0, 0),
-            image_over=None,
+            init_state,
+            get_data_function=None,
+            params_function=None,
+            target=False,
             help_text=None
     ):
-        self.GOLD_MIDI_HELP_TEXT_POSITION = (14, 79)
-
-        self._file_name = file_name
-        self._src_over_image = None
-        self._src_idle_image = None
-        self._render_image = None
-
+        self._name = name
         self._position = position
         self._size = size
-        self._size_hover_image = hover_image_size
-        self._source_image_offset = source_image_offset
+        self._state = init_state
+        self._surface = None
+        self._get_data_function = get_data_function
+        self._params_function = params_function
+        self._drag_enabled = False
+        self._target = target
         self._help_text = help_text
 
-        self._state = None
-        self._state_time = 5
-
-        self._debug = DEBUG
-
-        self.function = function
-        self.function_parameters = params
-
-        if os.path.exists(os.path.join(self._file_name + '.png')):
-            image = pygame.image.load(os.path.join(self._file_name + '.png'))
-        else:
-            image = pygame.Surface(self._size, pygame.SRCALPHA)
-            if self._debug:
-                image.fill((255, 255, 0, 60))
-
-        self._src_idle_image = image
-        self._render_image = self._src_idle_image
-
-        if image_over:
-            self._src_over_image = Image(
-                image_over,
-                (0, 0),
-                size_image_cropped=self._size_hover_image,
-                source_image_offset=self._source_image_offset
-            ).get_image()
-
-    def get_button(self):
+    def start(self):
         return self
 
-    def get_type(self):
-        return TYPE_BUTTON_OBJ
+    # EVENT_ON_MOUSE_IN, ON_MOUSE_OFF, ON_MOUSE_CLICK, ON_DRAG, ON_KEY_PRESS, ON_KEY_RELEASE
+    def update(self, event_type):
+        if event_type == EVENT_ON_MOUSE_IN:
+            self.on_mouse_in()
+        elif event_type == EVENT_ON_MOUSE_OUT:
+            self.on_mouse_out()
+        elif event_type == EVENT_ON_MOUSE_CLICK_PB:
+            self.on_mouse_click()
+        elif event_type == EVENT_ON_MOUSE_DRAG:
+            self.on_mouse_drag()
+        elif event_type == EVENT_ON_MOUSE_RELEASE:
+            self.on_mouse_release()
+        else:
+            self.is_dynamic_animation()
+
+    def get_name(self):
+        return self._name
 
     def get_coordinates(self):
         return [self._position, self._size]
 
-    def is_active(self):
-        if self._state:
-            self._state = False
-            return True
+    def get_surface(self):
+        return self._surface
 
+    def get_position(self):
+        return self._position
+
+    def get_size(self):
+        return self._size
+
+    def get_state(self):
+        return self._state
+
+    def set_state(self, state):
+        self._state = state
+
+    def set_position(self, position):
+        self._position = position
+
+    def set_draggable(self, option):
+        self._drag_enabled = option
+
+    def is_drag_enabled(self):
+        return self._drag_enabled
+
+    def has_target(self):
+        if self._target:
+            return True
         return False
 
-    """
-    Update information to render
-    """
-    def update(self, event_type):
-        if event_type == EVENT_MOUSE_OVER_HOT_SPOT:
-            self._render_image = self._src_over_image.render()
-            self._state = 'active'
-            if self._help_text:
-                full_image_size = (
-                    self._position[0] + self._size_hover_image[0],
-                    143
-                )
-                help_text = Text(self._help_text, self.GOLD_MIDI_HELP_TEXT_POSITION).get_text().render()
-                image = pygame.Surface(full_image_size, pygame.SRCALPHA)
-                image.blit(help_text[0], help_text[1])
-                image.blit(self._render_image, self._position)
+    def on_mouse_click(self):
+        print('Click Button')
 
-                self._render_image = image
-        elif event_type == EVENT_MOUSE_OVER_OUT_HOT_SPOT:
-            self._render_image = self._src_idle_image
-            self._state = None
+    def on_mouse_release(self):
+        print('Released Object')
 
-    """
-    Get the information to render
-    """
+    def on_mouse_in(self):
+        print('Over Button')
+
+    def on_mouse_out(self):
+        print('Out Button')
+
+    def on_mouse_drag(self):
+        print('Dragging')
+
+    def is_dynamic_animation(self):
+        if self._get_data_function is not None:
+            self._get_data_function()
+
     def render(self):
-        if self._help_text and self._state == 'active':
-            return [self._render_image, (0, 0)]
-
-        return [self._render_image, self._position]
+        return [self._surface, self._position]
 
 
-class HorizontalSlider:
-    def __init__(self,
-                 position,
-                 bar_size,
-                 puller_size,
-                 function,
-                 puller_image='slider_puller',
-                 width_level_marker=5,
-                 init_puller_position=1,
-                 get_data_function=None
-                 ):
-        self._type = TYPE_SLIDER_OBJ
-        self._position = position
-        self._puller_position = (position[0], 0)
-        self._puller_image_name = puller_image
-        self._puller = pygame.image.load(self._puller_image_name + '.png')
-        self._size_puller = puller_size
-        self._size_level_marker = (self._puller_position[0], width_level_marker)
-        self._size_bar = bar_size
-        self._draggable = False
-        self._level_marker = None
-        self._shader = None
-        self._action = function
-        self._shader = None
-        self.function = self.drag_puller
-        self._get_data_function = get_data_function
-        self._puller_position = (
-            self.get_puller_position(init_puller_position),
-            self._puller_position[1]
+class Text(ObjectWithStates):
+    def __init__(self, content, position, font=None, font_size=16, update_function=None):
+        ObjectWithStates.__init__(
+            self,
+            name=content,
+            position=position,
+            size=(0, 0),
+            init_state=STATE_ELEMENT_IDLE,
+            get_data_function=update_function,
         )
 
-        if self._get_data_function:
-            value = self._get_data_function()
-            if value:
-                self._puller_position = (self.get_puller_position(value), self._puller_position[1])
-                self._size_level_marker = (self.get_puller_position(value), self._size_level_marker[1])
+        self.font_family = font
+        self.size_font = font_size
+        self._surface = None
+        self.is_dynamic = False
+        self.start()
 
-        self.blits_slider()
-
-    def get_slider(self):
+    def start(self):
+        if not pygame.font.get_init():
+            pygame.font.init()
+        text = pygame.font.Font(self.font_family, self.size_font)
+        surface = text.render(self.get_name(), True, (255, 255, 255))
+        self._surface = surface
         return self
 
-    def get_type(self):
-        return self._type
 
-    def get_puller_position(self, value):
-        if hasattr(value, 'value'):
-            value = value.value
-        return int(self._size_bar[0] * float(value))
+class Image(ObjectWithStates):
+    def __init__(self, name, position, size, offset_position=None):
+        ObjectWithStates.__init__(
+            self,
+            name=name,
+            position=position,
+            size=size,
+            init_state=STATE_ELEMENT_IDLE
+        )
+        self._offset_position = offset_position
+        self.start()
 
-    def get_coordinates(self):
-        return [self._position, self._size_bar]
+    def start(self):
+        self._surface = pygame.image.load(os.path.join(self._name + '.png'))
 
-    def blits_slider(self):
-        self._shader = pygame.Surface((self._size_bar[0] + self._size_puller[0], self._size_bar[1]), pygame.SRCALPHA)
-        level_marker = pygame.Surface(self._size_level_marker, pygame.HWSURFACE)
-        level_marker.fill((235, 180, 0))
-        self._shader.blits(((level_marker, (0, 12)), (self._puller, self._puller_position)))
+        if self._offset_position:
+            cropped_image = pygame.Surface(self._size, pygame.SRCALPHA)
+            cropped_image.blit(
+                self._surface,
+                self._position,
+                (self._offset_position[0], self._offset_position[1], self._size[0], self._size[0])
+            )
+            self._surface = cropped_image
+        return self
 
-    def drag_puller(self):
-        self._draggable = True
 
-    def update(self, event_type):
-        if event_type == EVENT_MOUSE_BUTTON_UP:
-            self._draggable = False
-            new_level = float(self._puller_position[1]) / float(self._size_bar[1] - (self._size_puller[1] / 2))
-            self._action(new_level)
+class Button(ObjectWithStates):
+    """
+    idle_hover_active_state_image param take an list of strings with the name
+    ["idle", "hover", "active"], ["idle", "hover"], ["hover"]
+
+    idle_hover_active_sprite_offset_position param take an list of tuples with the offset coordinates
+    ["idle", "hover", "active"], ["idle", "hover"], ["hover"]
+    """
+    def __init__(
+            self,
+            name,
+            position,
+            size,
+            action,
+            params_action=None,
+            idle_hover_active_state_image=[],
+            idle_hover_active_sprite_offset_position=[],
+            help_text=None
+    ):
+        ObjectWithStates.__init__(
+            self,
+            name=name,
+            position=position,
+            size=size,
+            init_state=STATE_ELEMENT_IDLE,
+            get_data_function=action,
+            params_function=params_action,
+            target=True,
+            help_text=help_text
+        )
+        self._states_images = idle_hover_active_state_image
+        self._sprite_offset_position_states_images = idle_hover_active_sprite_offset_position
+        self._idle_image_surface = None
+        self._hover_image_surface = None
+        self._active_image_surface = None
+
+        self.start()
+
+    def start(self):
+        self._surface = self.create_images_states()
+        return self
+
+    def create_images_states(self):
+        state_images_count = len(self._states_images)
+        offset_image_count = len(self._sprite_offset_position_states_images)
+        print('state_images_count: ', state_images_count, "offset_image_count: ", offset_image_count)
+        if state_images_count > 3 or offset_image_count > 3:
+            print(
+                'ERROR: More than 3 states images or offset coordinates.'
+                '["idle", "hover", "active"], ["idle", "hover"], ["hover"]'
+            )
+        elif state_images_count == 0 and offset_image_count == 0:
+            print('WARNING: No images states for button: ' + self.get_name())
+            return pygame.Surface(self.get_size())
         else:
-            if self._draggable:
-                mouse_coordenates = pygame.mouse.get_pos()
-                x_mouse = mouse_coordenates[0]
-                x_position, y_position = self._position
-                new_position = x_mouse - x_position
-                if new_position < 0:
-                    new_position = 0
-                elif new_position > self._size_bar[0]:
-                    new_position = self._size_bar[0]
-                self._puller_position = (new_position, self._puller_position[1])
-                self._size_level_marker = (new_position, self._size_level_marker[1])
-                self._shader = None
-                self.blits_slider()
+            if state_images_count > 2:
+                # 3 independent images for states (idle, hover, active). Create "active"
+                self._active_image_surface = self.create_image_state(self._states_images[2])
+                state_images_count = 2
+            if state_images_count > 1:
+                # 2 independent images for stages (idle, hover) . Create "hover"
+                self._hover_image_surface = self.create_image_state(self._states_images[1])
+                state_images_count = 1
+            if state_images_count == 1:
+                if offset_image_count > 2:
+                    # 3 sprite images (idle, hover, active). Create "active"
+                    self._active_image_surface = self.create_image_state(
+                        self._states_images[0],
+                        self._sprite_offset_position_states_images[2]
+                    )
+                    offset_image_count = 2
+                if offset_image_count > 1:
+                    # 2 sprite images (idle, hover). Create "hover"
+                    self._hover_image_surface = self.create_image_state(
+                        self._states_images[0],
+                        self._sprite_offset_position_states_images[1]
+                    )
+                    offset_image_count = 1
+                if offset_image_count == 1:
+                    # 1 sprite image (idle). Create "idle"
+                    self._idle_image_surface = self.create_image_state(
+                        self._states_images[0],
+                        self._sprite_offset_position_states_images[0]
+                    )
+                else:
+                    # 1 independent images for stage (idle). Create "idle"
+                    self._idle_image_surface = self.create_image_state(self._states_images[0])
 
-    def render(self):
-        return [self._shader, self._position]
+            return self._idle_image_surface.get_surface()
 
+    def create_image_state(self, name, offset_position=None):
+        return Image(
+            name=name,
+            position=(0, 0),
+            size=self.get_size(),
+            offset_position=offset_position
+        )
+
+    def get_idle_offset_position(self):
+        return self._sprite_offset_position_states_images[0]
+
+    def get_hover_offset_position(self):
+        return self._sprite_offset_position_states_images[1]
+
+    def get_active_offset_position(self):
+        return self._sprite_offset_position_states_images[3]
+
+    def on_mouse_in(self):
+        self._surface = self._hover_image_surface.get_surface()
+        self.set_state(STATE_ELEMENT_HOVER)
+
+    def on_mouse_out(self):
+        self._surface = self._idle_image_surface.get_surface()
+        self.set_state(STATE_ELEMENT_IDLE)
+
+    def on_mouse_click(self):
+        if self._params_function:
+            self._get_data_function(self._params_function)
+        else:
+            self._get_data_function()
+        if self.get_state() == STATE_ELEMENT_ACTIVE:
+            if self._hover_image_surface:
+                self.set_state(STATE_ELEMENT_HOVER)
+                self._surface = self._hover_image_surface.get_surface()
+            else:
+                self.set_state(STATE_ELEMENT_IDLE)
+                self._surface = self._idle_image_surface.get_surface()
+        else:
+            if self._active_image_surface:
+                self.set_state(STATE_ELEMENT_ACTIVE)
+                self._surface = self._active_image_surface.get_surface()
+            else:
+                self.set_state(STATE_ELEMENT_IDLE)
+                self._surface = self._idle_image_surface.get_surface()
+
+
+class HorizontalSlider(ObjectWithStates):
+    def __init__(self,
+                 name,
+                 position,
+                 size,
+                 puller_size,
+                 action,
+                 get_data_function=None,
+                 width_level_marker=5,
+                 init_puller_position=1,
+                 min_value=0,
+                 max_value=1
+                 ):
+        ObjectWithStates.__init__(
+            self,
+            name=name,
+            position=position,
+            size=size,
+            init_state=STATE_ELEMENT_INACTIVE,
+            target=True
+        )
+        self._action = action
+        self._get_data_function = get_data_function
+        self._puller_size = puller_size
+        self._level_size_width = width_level_marker
+        self._puller_position = init_puller_position
+        self._min_value = min_value
+        self._max_value = max_value
+        self.start()
+
+    def start(self):
+        self._surface = pygame.Surface(self.get_total_size(), pygame.SRCALPHA)
+        position_level, size_level = self.get_level_bar_area()
+        self.set_position((self.get_position()[0], self.get_position()[1] - position_level[1]))
+        self.draw_slider(self.get_puller_absolute_position_from_volume())
+        return self
+
+    def get_total_size(self):
+        y = self._puller_size[1] if self._puller_size[1] > self._size[1] else self._size[1]
+        return self._size[0], y
+
+    def get_level_bar_area(self):
+        x, y = self._surface.get_size()
+        level_position_y = (y / 2) - (self._level_size_width / 2)
+        return [(0, level_position_y), (x, self._level_size_width)]
+
+    def get_puller_absolute_position_from_volume(self):
+        x = self.linear(
+            self._get_data_function(),
+            self._min_value,
+            self._max_value,
+            self.get_position()[0],
+            (self.get_position()[0] + self.get_total_size()[0])
+        )
+        return x
+
+    def get_puller_size(self):
+        return self._puller_size
+
+    def check_borders(self, position):
+        x_min = self.get_position()[0]
+        x_max = (self.get_total_size()[0] + x_min) - self.get_puller_size()[0]
+        new_position = position
+        if position < x_min:
+            new_position = x_min
+        elif position > x_max:
+            new_position = x_max
+        return new_position - x_min
+
+    def draw_slider(self, puller_raw_position):
+        position_level, size_level = self.get_level_bar_area()
+        level_bar = pygame.Surface(size_level, pygame.SRCALPHA)
+        level_bar.fill((235, 180, 0))
+        puller = pygame.image.load(self.get_name() + '.png')
+        puller_position = (self.check_borders(puller_raw_position), 0)
+        self._surface.blits(((level_bar, position_level), (puller, puller_position)))
+
+    def on_mouse_click(self):
+        self.set_draggable(True)
+        self.set_state(STATE_ELEMENT_ACTIVE)
+        x, y = pygame.mouse.get_pos()
+        self.draw_slider(x)
+        volume = self.linear(x, self.get_position()[0], self.get_total_size()[0], self._min_value, self._max_value)
+        self._action(volume)
+
+    def on_mouse_drag(self):
+        x, y = pygame.mouse.get_pos()
+        volume = self.linear(x, self.get_position()[0], self.get_total_size()[0], self._min_value, 10)
+        self.draw_slider(x)
+        self._action(volume)
+
+    def on_mouse_release(self):
+        self.set_draggable(False)
+        self.set_state(STATE_ELEMENT_IDLE)
+
+    def linear(self, value, min_in, max_in, min_out, max_out):
+        return (
+                       ((float(value) - float(min_in)) * (float(max_out) - float(min_out))
+                        ) / (float(max_in) - float(min_in))) + float(min_out)
 
 class VerticalSlider:
     def __init__(self,
@@ -1246,7 +1265,6 @@ class VerticalSlider:
                  init_puller_position=1,
                  get_data_function=None
                  ):
-        self._type = TYPE_SLIDER_OBJ
         self._position = position
         self._puller_position = (0, position[1])
         self._puller_image_name = puller_image
@@ -1334,7 +1352,6 @@ class RollButton:
         self._size = size
         self._action = function
         self._action_params = params
-        self._type = TYPE_ROLL_BUTTON_OBJ
         self._rolleable = False
         self._init_mouse_position = None
         self._value = None
@@ -1467,33 +1484,6 @@ class FormField:
         return [self._shader, self._position]
 
 
-class Image:
-    def __init__(self, name, position, size_image_cropped=None, source_image_offset=None):
-        self.name = name
-        self.position = position
-        # To crop images
-        self.frame_size = size_image_cropped
-        self.source_image_offset = source_image_offset
-        self.shader = None
-
-        self.shader = pygame.image.load(os.path.join(self.name + '.png'))
-
-        if self.frame_size:
-            cropped_image = pygame.Surface(self.frame_size)
-            cropped_image.blit(
-                self.shader,
-                self.position,
-                (self.source_image_offset[0], self.source_image_offset[1], self.frame_size[0], self.frame_size[0])
-            )
-            self.shader = cropped_image
-
-    def get_image(self):
-        return self
-
-    def render(self):
-        return self.shader
-
-
 class Cursor:
     def __init__(self):
         pass
@@ -1513,7 +1503,7 @@ class Cursor:
                                     224, 255, 240, 255, 240, 255, 0, 247, 128, 231, 128, 195, 192, 3, 192, 1, 128))
 
 
-app = App(MidiPlayer())
+app = App()
 
 while 1:
     app.update()
