@@ -12,24 +12,22 @@ cx_Freeze.setup(
                 "Tkinter",
                 "pybass",
                 "time",
-                "Crypto",
-                "ConfigParser"
+                "Crypto"
             ],
             "include_files": [
-                "config.cfg",
                 "main_screen.png",
                 "mixer_screen.png",
                 "piano_roll_screen.png",
                 "settings_screen.png",
-                "mute_icon.png",
-                "solo_icon.png",
+                "playlist_screen.png",
                 "slider_puller.png",
                 "slider_puller_v.png",
                 "sprite.png",
                 "goldmidi_x32/Scripts/bass.dll",
                 "goldmidi_x32/Scripts/bass_aac.dll",
                 "goldmidi_x32/Scripts/bassmidi.dll",
-                "sound_fonts/default.csf"
+                "sound_fonts/default.csf",
+                "midis/BackInBlack.mid"
             ]
         }
     },

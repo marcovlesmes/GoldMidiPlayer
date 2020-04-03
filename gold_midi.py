@@ -8,12 +8,19 @@ from encrypter import SoundCoder
 from Tkinter import Tk
 from tkFileDialog import askopenfilename
 
-DEBUG = True
+DEBUG = False
 
 WINDOW_INIT_X = 800
 WINDOW_INIT_Y = 91
 WINDOW_PIANO_ROLL_Y = 114
+WINDOW_MIXER_Y = 144
+WINDOW_SETTINGS_Y = 350
+WINDOW_PLAYLIST_Y = 216
 WINDOW_HELP_TEXT_POSITION = (14, 79)
+
+GOLD_MIDI_NAME_POSITION = (270, 11)
+GOLD_MIDI_TIME_POSITION = (270, 25)
+GOLD_MIDI_CURRENT_TIME_POSITION = (405, 25)
 
 COLOR_YELLOW = (235, 180, 0)
 
@@ -24,20 +31,29 @@ EVENT_ON_MOUSE_RELEASE = 11
 EVENT_ON_MOUSE_IN = 12
 EVENT_ON_MOUSE_OUT = 13
 EVENT_ON_MOUSE_DRAG = 14
+EVENT_ON_MOUSE_CLICK_RELEASE = 15
 
 EVENT_ON_KEY_PRESS = 20
 
-STATE_ELEMENT_IDLE = 30
-STATE_ELEMENT_HOVER = 31
-STATE_ELEMENT_ACTIVE = 32
-STATE_ELEMENT_INACTIVE = 33
+EVENT_ON_DYNAMIC_TEXT = 30
+EVENT_OFF_DYNAMIC_TEXT = 31
+EVENT_REFRESH_TEXT = 32
+EVENT_HELP_TEXT_ON = 33
+EVENT_HELP_TEXT_OFF = 34
 
-MAIN_SCREEN = 40
-PIANO_ROLL_SCREEN = 41
-MIXER_SCREEN = 42
-SETTINGS_SCREEN = 43
-"""
-"""
+STATE_ELEMENT_IDLE = 40
+STATE_ELEMENT_HOVER = 41
+STATE_ELEMENT_ACTIVE = 42
+STATE_ELEMENT_INACTIVE = 43
+STATE_GOLD_MIDI_STOP = 44
+STATE_GOLD_MIDI_PAUSED = 45
+STATE_GOLD_MIDI_PLAYING = 46
+
+MAIN_SCREEN = 50
+PIANO_ROLL_SCREEN = 51
+MIXER_SCREEN = 52
+SETTINGS_SCREEN = 53
+PLAYLIST_SCREEN = 54
 
 
 class App:
@@ -45,8 +61,8 @@ class App:
         pygame.init()
         pygame.display.set_caption("Gold Midi Player")
         # Windows Setup
-        self._window_size = (WINDOW_INIT_X, WINDOW_INIT_Y)
-        self._screen = pygame.display.set_mode(self._window_size)
+        self._window_size = None
+        self._screen = None
         self._clock = pygame.time.Clock()
         self._events_buffer = []
         self._targets_area = []
@@ -101,6 +117,11 @@ class App:
             if event.type == pygame.USEREVENT and event.custom_type == EVENT_ON_SCREEN_CHANGE:
                     self._events_buffer.append([EVENT_ON_SCREEN_CHANGE, event.screen])
                     pygame.event.clear()
+            elif event.type == pygame.USEREVENT:
+                if event.custom_type == EVENT_HELP_TEXT_ON or event.custom_type == EVENT_HELP_TEXT_OFF:
+                    self._events_buffer.append([event.custom_type, None])
+                else:
+                    self._events_buffer.append([event.custom_type, event.element])
 
     def event_exec(self):
         """
@@ -111,23 +132,19 @@ class App:
             event_type, event_data = event[0], event[1]
             if event_type == EVENT_ON_SCREEN_CHANGE:
                 self.update_screen()
-            elif event_type == EVENT_ON_MOUSE_OUT:
-                event_data.update(EVENT_ON_MOUSE_OUT)
-            elif event_type == EVENT_ON_MOUSE_IN:
-                event_data.update(EVENT_ON_MOUSE_IN)
-            elif event_type == EVENT_ON_MOUSE_CLICK_PB:
-                event_data.update(EVENT_ON_MOUSE_CLICK_PB)
-            elif event_type == EVENT_ON_MOUSE_RELEASE:
-                event_data.update(EVENT_ON_MOUSE_RELEASE)
-            elif event_type == EVENT_ON_MOUSE_DRAG:
-                event_data.update(EVENT_ON_MOUSE_DRAG)
-            print(event)
-
+            elif event_type == EVENT_HELP_TEXT_ON:
+                self._interface.set_help_text_on()
+            elif event_type == EVENT_HELP_TEXT_OFF:
+                self._interface.set_help_text_off()
+            else:
+                event_data.update(event_type)
         self._events_buffer = []
 
     def update_screen(self):
         self._render_screen = self._interface.render()
         self.get_targets_areas()
+        self._window_size = self._interface.window_size
+        self._screen = pygame.display.set_mode(self._window_size)
 
     def update(self):
         """
@@ -195,7 +212,6 @@ class App:
         :return:
         """
         self._screen.fill((0, 0, 0))
-
         for element in self._render_screen:
             self._screen.blit(element.get_surface(), element.get_position())
         pygame.display.update()
@@ -204,29 +220,87 @@ class App:
 class MidiPlayer:
     def __init__(self):
         BASS_Init(-1, 44100, 0, 0, 0)
-        self.GOLD_MIDI_NAME_POSITION = (270, 11)
-        self.GOLD_MIDI_TIME_POSITION = (270, 25)
-        self.GOLD_MIDI_TIMECOUNT_POSITION = (405, 25)
-        self.GOLD_MIDI_STOP = -1
-        self.GOLD_MIDI_PAUSED = 0
-        self.GOLD_MIDI_PLAYING = 1
-
-        self.hstream_handle = None
-        self.mixer_channels = []
-        self._global_volume = 1.0
-        self._file_position = '0:00:00'
-        self._file_state = self.GOLD_MIDI_STOP
-        self.sound_font = 'default.csf'
         self.playlist = Playlist()
-        self.window_size = None
+        self.window_size = (WINDOW_INIT_X, WINDOW_INIT_Y)
         self._screen_elements = []
         self._active_screens = []
-        self.start()
 
-    def start(self):
-        sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(self.sound_font, 0), -1, 0)
-        BASS_MIDI_StreamSetFonts(0, sound_font, 1)
-        return self
+    def get_element_by_name(self, name):
+        for element in self._screen_elements:
+            if element.get_name() == name:
+                return element
+        return False
+
+    def get_volume(self):
+        return self.playlist.get_global_volume()
+
+    def get_midi_name(self):
+        midi = self.playlist.get_active_file()
+        if midi:
+            return midi.get_name()
+        return 'No MIDI file'
+
+    def get_midi_time(self):
+        midi = self.playlist.get_active_file()
+        if midi:
+            return midi.get_length()
+        return '00:00:00'
+
+    def get_current_midi_time(self):
+        midi = self.playlist.get_active_file()
+        if midi:
+            return Utility.format_time(midi.get_current_time())
+        return '00:00:00'
+
+    def get_element_by_state(self, state):
+        if len(self._screen_elements) > 0:
+            for element in self._screen_elements:
+                if element.get_state() == state:
+                    return element
+        return False
+
+    def get_hover_element_help_text(self):
+        hover_element = self.get_element_by_state(STATE_ELEMENT_HOVER)
+        if hover_element:
+            return hover_element.get_help_text()
+        else:
+            return 'No action.'
+
+    def get_window_size(self):
+        return self.window_size
+
+    def set_global_volume(self, level):
+        self.playlist.set_global_volume(level)
+
+    def set_channel_volume(self, channel, value):
+        # volume level (0-127)
+        self.playlist.set_channel_volume(channel, value)
+
+    def set_channel_chorus(self, channel, value):
+        self.playlist.set_channel_chorus(channel, value)
+
+    def set_channel_pan(self, channel, value):
+        # pan position (0-128, 0=left, 64=middle, 127=right
+        self.playlist.set_channel_pan(channel, value)
+
+    def set_channel_rev(self, channel, value):
+        self.playlist.set_channel_rev(channel, value)
+
+    def set_solo_track(self, channel):
+        self.playlist.set_solo_track(channel)
+
+    def set_mute_track(self, channel):
+        self.playlist.set_mute_track(channel)
+
+    def set_window_size(self, size):
+        self.window_size = size
+
+    def set_help_text_on(self):
+        help_text = self.get_element_by_name('Help Text')
+        help_text.draw_text(self.get_hover_element_help_text())
+
+    def set_help_text_off(self):
+        self.get_element_by_name('Help Text').draw_text('')
 
     def toggle_screen(self, screen):
         pygame.event.post(
@@ -247,37 +321,79 @@ class MidiPlayer:
         self._screen_elements = []
         if SETTINGS_SCREEN in self._active_screens:
             self._screen_elements = self.draw_settings_screen()
+            size = [WINDOW_INIT_X, WINDOW_SETTINGS_Y]
         else:
             if MAIN_SCREEN in self._active_screens:
                 self._screen_elements = self.draw_main_screen()
-            if PIANO_ROLL_SCREEN in self._active_screens:
-                self._screen_elements.append(self.draw_piano_roll((0, WINDOW_INIT_Y)))
+                size = [WINDOW_INIT_X, WINDOW_INIT_Y]
+            if PLAYLIST_SCREEN in self._active_screens:
+                self._screen_elements += self.draw_playlist_screen(size)
+                size[1] += WINDOW_PLAYLIST_Y
             if MIXER_SCREEN in self._active_screens:
-                self._screen_elements.append(self.draw_mixer_screen((0, WINDOW_INIT_Y + WINDOW_PIANO_ROLL_Y)))
-            elif MIXER_SCREEN in self._active_screens:
-                self._screen_elements.append(self.draw_mixer_screen((0, WINDOW_INIT_Y)))
+                self._screen_elements += self.draw_mixer_screen(size)
+                size[1] += WINDOW_MIXER_Y
+            if PIANO_ROLL_SCREEN in self._active_screens:
+                self._screen_elements += self.draw_piano_roll_screen(size)
+                size[1] += WINDOW_PIANO_ROLL_Y
+        self.set_window_size(size)
         return self._screen_elements
-
-    def set_window_size(self, size):
-        self.window_size = size
 
     def draw_main_screen(self):
         return [
             Image(name='main_screen', position=(0, 0), size=(WINDOW_INIT_X, WINDOW_INIT_Y)),
-            Text(content='MIDI Name', position=self.GOLD_MIDI_NAME_POSITION),
-            Text(content='MIDI Time', position=self.GOLD_MIDI_TIME_POSITION),
+            Button(
+                name='playlist',
+                position=(254, 10),
+                size=(278, 27),
+                action=self.toggle_screen,
+                params_action=PLAYLIST_SCREEN,
+                help_text='Show/Hide Playlist'
+            ),
+            Text(
+                content='MIDI Name',
+                position=GOLD_MIDI_NAME_POSITION,
+                update_function=self.get_midi_name
+            ),
+            Text(
+                content='MIDI Time',
+                position=GOLD_MIDI_TIME_POSITION,
+                update_function=self.get_midi_time
+            ),
             Text(
                 content='MIDI Current Time',
-                position=self.GOLD_MIDI_TIMECOUNT_POSITION,
-                update_function=self.get_counter_midi
+                position=GOLD_MIDI_CURRENT_TIME_POSITION,
+                update_function=self.get_current_midi_time
+            ),
+            Text(
+                content='Help Text',
+                position=WINDOW_HELP_TEXT_POSITION,
+                update_function=self.get_hover_element_help_text
             ),
             HorizontalSlider(
-                name='slider_puller',
+                puller_image_name='volume',
                 position=(588, 80),
                 size=(151, 5),
                 puller_size=(10, 10),
-                action=self.change_volume,
-                get_data_function=self.get_volume
+                exec_function=self.set_global_volume,
+                get_function=self.get_volume
+            ),
+            HorizontalSlider(
+                puller_image_name='tempo',
+                position=(588, 51),
+                size=(151, 5),
+                puller_size=(10, 10),
+                init_puller_position=0.5,
+                exec_function=self.set_global_volume,
+                get_function=self.get_volume
+            ),
+            HorizontalSlider(
+                puller_image_name='transpose',
+                position=(588, 66),
+                size=(151, 5),
+                puller_size=(10, 10),
+                init_puller_position=0.5,
+                exec_function=self.set_global_volume,
+                get_function=self.get_volume
             ),
             Button(
                 name='open_file',
@@ -312,7 +428,7 @@ class MidiPlayer:
                 name='open_sound_font',
                 position=(674, 3),
                 size=(37, 37),
-                action=self.load_sound_font,
+                action=self.open_sound_font,
                 idle_hover_active_state_image=['sprite'],
                 idle_hover_active_sprite_offset_position=[(0, 0), (243, 0)],
                 help_text='Open new SoundFont file'
@@ -346,10 +462,10 @@ class MidiPlayer:
                 help_text='Rewind'
             ),
             Button(
-                name='playing',
+                name='play',
                 position=(337, 47),
                 size=(37, 37),
-                action=self.playing,
+                action=self.play,
                 idle_hover_active_state_image=['sprite'],
                 idle_hover_active_sprite_offset_position=[(0, 0), (191, 84), (192, 40)],
                 help_text='Play'
@@ -376,7 +492,11 @@ class MidiPlayer:
 
     def draw_settings_screen(self):
         return [
-            Image('settings_screen', (0, 0)),
+            Image(
+                name='settings_screen',
+                position=(0, 0),
+                size=(800, 350)
+            ),
             Button(
                 name='settings',
                 position=(757, 3),
@@ -386,194 +506,483 @@ class MidiPlayer:
                 idle_hover_active_state_image=['sprite'],
                 idle_hover_active_sprite_offset_position=[(0, 0), (325, 0)],
                 help_text='Toggle Settings Screen'
-            ),
-            FormField(
-                'Output Port MIDI',
-                (53, 95),
-                (278, 20)
-            ).get_form_field()
+            )
+
+            # FormField(
+            #     'Output Port MIDI',
+            #     (53, 95),
+            #     (278, 20)
+            # )
+
         ]
 
-    def draw_mixer_screen(self, position=(0, 0)):
+    def draw_mixer_screen(self, position):
         i = 0
-        solo_buttons_coords = [
-            (position[0] + 25, position[1] + 123),
-            (position[0] + 75, position[1] + 123),
-            (position[0] + 125, position[1] + 123),
-            (position[0] + 175, position[1] + 123),
-            (position[0] + 225, position[1] + 123),
-            (position[0] + 275, position[1] + 123),
-            (position[0] + 325, position[1] + 123),
-            (position[0] + 375, position[1] + 123),
-            (position[0] + 425, position[1] + 123),
-            (position[0] + 475, position[1] + 123),
-            (position[0] + 525, position[1] + 123),
-            (position[0] + 575, position[1] + 123),
-            (position[0] + 625, position[1] + 123),
-            (position[0] + 675, position[1] + 123),
-            (position[0] + 725, position[1] + 123),
-            (position[0] + 775, position[1] + 123)
+        x_dist = self.get_window_size()[0] / 16
+
+        solo_buttons_x_coord = 25
+        mute_buttons_x_coord = 6
+        sliders_x_coord = 37
+        rev_chorus_pan_buttons_x_coord = 8
+        elements = [
+            Image(
+                name='mixer_screen',
+                position=(0, position[1]),
+                size=(800, 144)
+            )
         ]
-        mute_buttons_coords = [
-            (position[0] + 6, position[1] + 123),
-            (position[0] + 56, position[1] + 123),
-            (position[0] + 106, position[1] + 123),
-            (position[0] + 156, position[1] + 123),
-            (position[0] + 206, position[1] + 123),
-            (position[0] + 256, position[1] + 123),
-            (position[0] + 306, position[1] + 123),
-            (position[0] + 356, position[1] + 123),
-            (position[0] + 406, position[1] + 123),
-            (position[0] + 456, position[1] + 123),
-            (position[0] + 506, position[1] + 123),
-            (position[0] + 556, position[1] + 123),
-            (position[0] + 606, position[1] + 123),
-            (position[0] + 656, position[1] + 123),
-            (position[0] + 706, position[1] + 123),
-            (position[0] + 756, position[1] + 123)
-        ]
-        sliders_coords = [
-            (position[0] + 31, position[1] + 28),
-            (position[0] + 81, position[1] + 28),
-            (position[0] + 131, position[1] + 28),
-            (position[0] + 181, position[1] + 28),
-            (position[0] + 231, position[1] + 28),
-            (position[0] + 281, position[1] + 28),
-            (position[0] + 331, position[1] + 28),
-            (position[0] + 381, position[1] + 28),
-            (position[0] + 431, position[1] + 28),
-            (position[0] + 481, position[1] + 28),
-            (position[0] + 531, position[1] + 28),
-            (position[0] + 581, position[1] + 28),
-            (position[0] + 631, position[1] + 28),
-            (position[0] + 681, position[1] + 28),
-            (position[0] + 731, position[1] + 28),
-            (position[0] + 781, position[1] + 28)
-        ]
-        rev_buttons_coords = [
-            (position[0] + 8, position[1] + 37),
-            (position[0] + 58, position[1] + 37),
-            (position[0] + 108, position[1] + 37),
-            (position[0] + 158, position[1] + 37),
-            (position[0] + 208, position[1] + 37),
-            (position[0] + 258, position[1] + 37),
-            (position[0] + 308, position[1] + 37),
-            (position[0] + 358, position[1] + 37),
-            (position[0] + 408, position[1] + 37),
-            (position[0] + 458, position[1] + 37),
-            (position[0] + 508, position[1] + 37),
-            (position[0] + 558, position[1] + 37),
-            (position[0] + 608, position[1] + 37),
-            (position[0] + 658, position[1] + 37),
-            (position[0] + 708, position[1] + 37),
-            (position[0] + 758, position[1] + 37)
-        ]
-        chorus_buttons_coords = [
-            (position[0] + 8, position[1] + 67),
-            (position[0] + 58, position[1] + 67),
-            (position[0] + 108, position[1] + 67),
-            (position[0] + 158, position[1] + 67),
-            (position[0] + 208, position[1] + 67),
-            (position[0] + 258, position[1] + 67),
-            (position[0] + 308, position[1] + 67),
-            (position[0] + 358, position[1] + 67),
-            (position[0] + 408, position[1] + 67),
-            (position[0] + 458, position[1] + 67),
-            (position[0] + 508, position[1] + 67),
-            (position[0] + 558, position[1] + 67),
-            (position[0] + 608, position[1] + 67),
-            (position[0] + 658, position[1] + 67),
-            (position[0] + 708, position[1] + 67),
-            (position[0] + 758, position[1] + 67)
-        ]
-        pan_buttons_coords = [
-            (position[0] + 8, position[1] + 97),
-            (position[0] + 58, position[1] + 97),
-            (position[0] + 108, position[1] + 97),
-            (position[0] + 158, position[1] + 97),
-            (position[0] + 208, position[1] + 97),
-            (position[0] + 258, position[1] + 97),
-            (position[0] + 308, position[1] + 97),
-            (position[0] + 358, position[1] + 97),
-            (position[0] + 408, position[1] + 97),
-            (position[0] + 458, position[1] + 97),
-            (position[0] + 508, position[1] + 97),
-            (position[0] + 558, position[1] + 97),
-            (position[0] + 608, position[1] + 97),
-            (position[0] + 658, position[1] + 97),
-            (position[0] + 708, position[1] + 97),
-            (position[0] + 758, position[1] + 97)
-        ]
-        elements = [Image('mixer_screen', position).get_image()]
-        while i < len(self.mixer_channels):
+
+        while i < self.playlist.get_mixer_channels_count():
             elements.append(
                 Button(
-                    'solo_icon',
-                    solo_buttons_coords[i],
-                    (19, 15),
-                    self.solo_track,
-                    params=i,
-                    hover_image_size=(19, 15),
-                    source_image_offset=(358, 40),
-                    image_over='sprite'
-                ).get_button()
+                    name='solo',
+                    position=(solo_buttons_x_coord, position[1] + 123),
+                    size=(19, 15),
+                    action=self.set_solo_track,
+                    params_action=i,
+                    idle_hover_active_state_image=['sprite'],
+                    idle_hover_active_sprite_offset_position=[(358, 84), (358, 114), (358, 40)],
+                    help_text='Solo channel'
+                )
             )
             elements.append(
                 Button(
-                    'mute_icon',
-                    mute_buttons_coords[i],
-                    (19, 15),
-                    self.mute_track,
-                    params=i,
-                    hover_image_size=(19, 15),
-                    source_image_offset=(358, 55),
-                    image_over='sprite'
-                ).get_button()
+                    name='mute',
+                    position=(mute_buttons_x_coord, position[1] + 123),
+                    size=(19, 15),
+                    action=self.set_mute_track,
+                    params_action=i,
+                    idle_hover_active_state_image=['sprite'],
+                    idle_hover_active_sprite_offset_position=[(358, 69), (358, 99), (358, 56)],
+                    help_text='Mute channel'
+                )
             )
             elements.append(
                 VerticalSlider(
-                    sliders_coords[i],
-                    (20, 87),
-                    (16, 27),
-                    function=self.set_channel_volume,
-                    params=i,
-                    get_data_function=self.get_channel_volume
-                ).get_slider()
+                    puller_image_name='slider_puller_v',
+                    position=(sliders_x_coord, position[1] + 28),
+                    size=(20, 86),
+                    puller_size=(16, 27),
+                    exec_function=self.set_channel_volume,
+                    params_function=i,
+                    get_function=self.get_channel_volume
+                )
             )
             elements.append(
                 RollButton(
-                    pan_buttons_coords[i],
-                    (21, 18),
-                    self.set_channel_pan,
-                    i,
+                    name='reverb',
+                    position=(rev_chorus_pan_buttons_x_coord, position[1] + 37),
+                    size=(21, 18),
+                    exec_function=self.set_channel_rev,
+                    params_function=i,
+                    init_sprite_position=109
+                )
+            )
+            elements.append(
+                RollButton(
+                    name='chorus',
+                    position=(rev_chorus_pan_buttons_x_coord, position[1] + 67),
+                    size=(21, 18),
+                    exec_function=self.set_channel_chorus,
+                    params_function=i,
+                    init_sprite_position=109
+                )
+            )
+            elements.append(
+                RollButton(
+                    name='pan',
+                    position=(rev_chorus_pan_buttons_x_coord, position[1] + 97),
+                    size=(21, 18),
+                    exec_function=self.set_channel_pan,
+                    params_function=i,
                     init_sprite_position=172
-                ).get_roll_button()
-            )
-            elements.append(
-                RollButton(
-                    rev_buttons_coords[i],
-                    (21, 18),
-                    self.set_channel_rev,
-                    i,
-                    init_sprite_position=109
-                ).get_roll_button()
-            )
-            elements.append(
-                RollButton(
-                    chorus_buttons_coords[i],
-                    (21, 18),
-                    self.set_channel_chorus,
-                    i,
-                    init_sprite_position=109
-                ).get_roll_button()
+                )
             )
             i += 1
+            solo_buttons_x_coord += x_dist
+            mute_buttons_x_coord += x_dist
+            sliders_x_coord += x_dist
+            rev_chorus_pan_buttons_x_coord += x_dist
         return elements
 
-    def draw_piano_roll(self, position=(0, 0)):
-        return [Image('piano_roll_screen', position).get_image()]
+    def draw_piano_roll_screen(self, position):
+        return [
+            Image(name='piano_roll_screen', position=(0, position[1]), size=(800, 114))
+        ]
 
-    def load_sound_font(self):
+    def draw_playlist_screen(self, position):
+        elements = [
+            Image(
+                name='playlist_screen',
+                position=(0, position[1]),
+                size=(WINDOW_INIT_X, WINDOW_PLAYLIST_Y)
+            )
+        ]
+
+        playlist = self.playlist.get_playlist()
+        for midi in playlist:
+            elements.append(
+                Text(
+                    content='MIDI name',
+                    position=(25, position[1] + 56),
+                    update_function=midi.get_name
+                )
+            )
+            elements.append(
+                Text(
+                    content='MIDI path',
+                    position=(212, position[1] + 56),
+                    update_function=midi.get_short_path
+                )
+            )
+            elements.append(
+                Text(
+                    content='MIDI ',
+                    position=(404, position[1] + 56),
+                    update_function=midi.get_length
+                )
+            )
+            position = (position[0], position[1] + 18)
+        return elements
+
+    def play(self):
+        if self.playlist.get_player_state() != STATE_GOLD_MIDI_PLAYING:
+               self.playlist.play()
+               pygame.event.post(
+                   pygame.event.Event(
+                       pygame.USEREVENT,
+                       {
+                           "custom_type": EVENT_ON_DYNAMIC_TEXT,
+                           "element": self.get_element_by_name('MIDI Current Time')
+                       }
+                   )
+               )
+        else:
+            self.playlist.pause()
+            pygame.event.post(
+                pygame.event.Event(
+                    pygame.USEREVENT,
+                    {
+                        "custom_type": EVENT_OFF_DYNAMIC_TEXT,
+                        "element": self.get_element_by_name('MIDI Current Time')
+                    }
+                )
+            )
+
+    def stop(self):
+        self.playlist.stop()
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_OFF_DYNAMIC_TEXT,
+                    "element": self.get_element_by_name('MIDI Current Time')
+                }
+            )
+        )
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_REFRESH_TEXT,
+                    "element": self.get_element_by_name('MIDI Current Time')
+                }
+            )
+        )
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_ON_MOUSE_CLICK_RELEASE,
+                    "element": self.get_element_by_name('play')
+                }
+            )
+        )
+
+    def rewind(self):
+        self.playlist.rewind()
+
+    def forward(self):
+        self.playlist.forward()
+
+    def open_new_midi(self):
+        self.playlist.open_new_midi()
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_REFRESH_TEXT,
+                    "element": self.get_element_by_name('MIDI Name')
+                }
+            )
+        )
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_REFRESH_TEXT,
+                    "element": self.get_element_by_name('MIDI Time')
+                }
+            )
+        )
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_ON_SCREEN_CHANGE,
+                    "screen": PLAYLIST_SCREEN
+                }
+            )
+        )
+
+    def open_sound_font(self):
+        self.playlist.open_sound_font()
+
+    def convert_sf2_to_csf(self):
+        Tk().withdraw()
+        sound_font_path = askopenfilename(
+            initialdir="./",
+            title="Select SF2 file",
+            filetypes=(("SF2 files", "*.sf2"), ("all files", "*.*"))
+        )
+
+        if sound_font_path:
+            if sound_font_path.find('.sf2', -4) > 5:
+                result = SoundCoder().encrypt_sound_found(sound_font_path)
+
+    def get_channel_volume(self, channel):
+        print('Channel X: 1')
+        return 1
+
+
+class Playlist:
+    def __init__(self):
+        self._midi_list = []
+        self._sound_font = None
+        self._player_state = STATE_GOLD_MIDI_STOP
+        self._mixer_channels = {}
+        self._global_volume = 1
+
+    def get_active_file(self):
+        if not len(self._midi_list) > 0:
+            return None
+        for midi in self._midi_list:
+            if midi.get_state() == STATE_ELEMENT_ACTIVE:
+                return midi
+        print('WARNING: Exist MIDI files in playlist but none are active (STATE_ELEMENT_ACTIVE.)')
+        return None
+
+    def get_player_state(self):
+        return self._player_state
+
+    def get_global_volume(self):
+        if self.get_active_file() and self.get_active_file().get_hstream_handle():
+            import ctypes
+            volume = ctypes.c_float()
+            BASS_ChannelGetAttribute(self.get_active_file().get_hstream_handle(), BASS_ATTRIB_VOL + 0, volume)
+            self._global_volume = volume.value if type(volume) == ctypes.c_float else volume
+        return self._global_volume
+
+    def get_mixer_channels_count(self):
+        return len(self._mixer_channels)
+
+    def get_mixer_value(self, channel, param):
+        if param in self._mixer_channels['channel_' + str(channel)]:
+            return self._mixer_channels.get('channel_' + str(channel)).get(param)
+
+    def get_playlist(self):
+        return self._midi_list
+
+    def set_mixer_value(self, channel, param, value):
+        if param in self._mixer_channels['channel_' + str(channel)]:
+            self._mixer_channels['channel_' + str(channel)][param] = value
+
+    def set_mixer_channels(self, midi):
+        for index in range(0, midi.get_tracks()):
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'index'],
+                index
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'bank'],
+                BASS_MIDI_StreamGetEvent(
+                    self.get_active_file().get_hstream_handle(), index, MIDI_EVENT_BANK
+                )
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'program'],
+                BASS_MIDI_StreamGetEvent(
+                    self.get_active_file().get_hstream_handle(), index, MIDI_EVENT_PROGRAM
+                )
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'volume'],
+                BASS_MIDI_StreamGetEvent(
+                    self.get_active_file().get_hstream_handle(), index, MIDI_EVENT_VOLUME
+                )
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'pan'],
+                BASS_MIDI_StreamGetEvent(
+                    self.get_active_file().get_hstream_handle(), index, MIDI_EVENT_PAN
+                )
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'solo'],
+                False
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'mute'],
+                False
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'reverb'],
+                BASS_MIDI_StreamGetEvent(
+                    self.get_active_file().get_hstream_handle(), index, MIDI_EVENT_REVERB
+                )
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'chorus'],
+                BASS_MIDI_StreamGetEvent(
+                    self.get_active_file().get_hstream_handle(), index, MIDI_EVENT_CHORUS
+                )
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'reverb_delay'],
+                BASS_MIDI_StreamGetEvent(
+                    self.get_active_file().get_hstream_handle(), index, MIDI_EVENT_REVERB_DELAY
+                )
+            )
+            Utility.set_nested_value(
+                self._mixer_channels,
+                ['channel_' + str(index), 'chorus_delay'],
+                BASS_MIDI_StreamGetEvent(
+                    self.get_active_file().get_hstream_handle(), index, MIDI_EVENT_CHORUS_DELAY
+                )
+            )
+
+    def set_global_volume(self, level):
+        if self.get_active_file():
+            BASS_ChannelSetAttribute(self.get_active_file().get_hstream_handle(), BASS_ATTRIB_VOL + 0, level)
+
+    def set_channel_volume(self, channel, level):
+        if self.get_active_file():
+            BASS_MIDI_StreamEvent(
+                self.get_active_file().get_hstream_handle(),
+                channel, MIDI_EVENT_VOLUME, int(level)
+            )
+
+    def set_channel_chorus(self, channel, level):
+        BASS_MIDI_StreamEvent(self.get_active_file().get_hstream_handle(), channel, MIDI_EVENT_CHORUS, int(level))
+
+    def set_channel_pan(self, channel, level):
+        BASS_MIDI_StreamEvent(self.get_active_file().get_hstream_handle(), channel, MIDI_EVENT_PAN, int(level))
+
+    def set_channel_rev(self, channel, level):
+        BASS_MIDI_StreamEvent(self.get_active_file().get_hstream_handle(), channel, MIDI_EVENT_REVERB, int(level))
+
+    def set_solo_track(self, channel):
+        if self.get_mixer_value(channel, 'solo'):
+            self.set_mixer_value(channel, 'solo', False)
+        else:
+            self.set_mixer_value(channel, 'solo', True)
+
+        for chn in self._mixer_channels:
+            if self._mixer_channels[chn].get('solo') and not self._mixer_channels[chn].get('mute'):
+                BASS_MIDI_StreamEvent(
+                    self.get_active_file().get_hstream_handle(),
+                    self._mixer_channels[chn].get('index'),
+                    MIDI_EVENT_VOLUME,
+                    self._mixer_channels[chn].get('volume')
+                )
+            else:
+                BASS_MIDI_StreamEvent(
+                    self.get_active_file().get_hstream_handle(),
+                    self._mixer_channels[chn].get('index'),
+                    MIDI_EVENT_VOLUME,
+                    0
+                )
+
+    def set_mute_track(self, channel):
+        if self.get_mixer_value(channel, 'mute'):
+            self.set_mixer_value(channel, 'mute', False)
+            BASS_MIDI_StreamEvent(
+                self.get_active_file().get_hstream_handle(),
+                channel,
+                MIDI_EVENT_VOLUME,
+                self.get_mixer_value(channel, 'volume')
+            )
+        else:
+            self.set_mixer_value(channel, 'mute', True)
+            BASS_MIDI_StreamEvent(
+                self.get_active_file().get_hstream_handle(),
+                channel,
+                MIDI_EVENT_VOLUME,
+                0
+            )
+
+    def add_midi_to_player(self, midi):
+        self._midi_list.append(midi)
+
+    def play(self):
+        if not self.get_active_file():
+            self.open_new_midi()
+        BASS_ChannelPlay(self.get_active_file().get_hstream_handle(), False)
+        self._player_state = STATE_GOLD_MIDI_PLAYING
+
+    def pause(self):
+        BASS_ChannelPause(self.get_active_file().get_hstream_handle())
+        self._player_state = STATE_GOLD_MIDI_PAUSED
+
+    def stop(self):
+        if self.get_active_file() and self.get_active_file().get_hstream_handle():
+            BASS_ChannelStop(self.get_active_file().get_hstream_handle())
+            BASS_ChannelSetPosition(self.get_active_file().get_hstream_handle(), 0, BASS_POS_BYTE)
+            self._player_state = STATE_GOLD_MIDI_STOP
+
+    def rewind(self):
+        if self.get_active_file() and \
+                BASS_ChannelIsActive(self.get_active_file().get_hstream_handle()) == BASS_ACTIVE_PLAYING:
+            file_position = BASS_ChannelGetPosition(self.get_active_file().get_hstream_handle(), BASS_POS_BYTE)
+            return_position = file_position - 1000000
+            if return_position < 0:
+                return_position = 0
+            BASS_ChannelSetPosition(self.get_active_file().get_hstream_handle(), return_position, BASS_POS_BYTE)
+
+    def forward(self):
+        if self.get_active_file() and \
+                BASS_ChannelIsActive(self.get_active_file().get_hstream_handle()) == BASS_ACTIVE_PLAYING:
+            file_position = BASS_ChannelGetPosition(self.get_active_file().get_hstream_handle(), BASS_POS_BYTE)
+            return_position = file_position + 1000000
+            BASS_ChannelSetPosition(self.get_active_file().get_hstream_handle(), return_position, BASS_POS_BYTE)
+
+    def open_new_midi(self):
+        Tk().withdraw()
+        self.stop()
+        new_midi = askopenfilename(
+            initialdir="./",
+            title="Select MIDI file",
+            filetypes=(("MIDI files", "*.mid"), ("all files", "*.*"))
+        )
+        if self.get_active_file():
+            self.get_active_file().set_state(STATE_ELEMENT_INACTIVE)
+
+        new_midi = Midi(new_midi)
+        if new_midi:
+            self.add_midi_to_player(new_midi)
+            self.set_mixer_channels(new_midi)
+
+    def open_sound_font(self):
         Tk().withdraw()
         new_sound_font = askopenfilename(
             initialdir="./",
@@ -596,274 +1005,95 @@ class MidiPlayer:
 
             """ File is suported. Loading: """
             if file_type_supported:
-                sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(str(new_sound_font), 0), -1, 0)
+                self._sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(str(new_sound_font), 0), -1, 0)
 
-                if self.hstream_handle is not None:
-                    BASS_MIDI_StreamSetFonts(self.hstream_handle, sound_font, 1)
+                if self.get_active_file() and self.get_active_file().get_hstream_handle() is not None:
+                    BASS_MIDI_StreamSetFonts(self.get_active_file().get_hstream_handle(), self._sound_font, 1)
 
-                BASS_MIDI_StreamSetFonts(0, sound_font, 1)
+                BASS_MIDI_StreamSetFonts(0, self._sound_font, 1)
 
             if is_sound_font_coded and os.path.exists(new_sound_font):
                 os.remove(new_sound_font)
 
-    def play_note(self):
-        BASS_MIDI_StreamEvent(self.hstream_handle, 0, MIDI_EVENT_NOTE, MAKEWORD(60, 100))
-        time.sleep(2)
-        BASS_MIDI_StreamEvent(handle, 0, MIDI_EVENT_NOTE, 60)
 
-    def rewind(self):
-        if self.hstream_handle and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
-            file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
-            return_position = file_position - 1000000
-            if return_position < 0:
-                return_position = 0
-            BASS_ChannelSetPosition(self.hstream_handle, return_position, BASS_POS_BYTE)
+class Midi:
+    def __init__(self, path):
+        self._path = path
+        self._state = STATE_ELEMENT_ACTIVE
+        self._hstream_handle = None
+        self._size = 0
+        self._length = 0
+        self._tracks = 0
+        self._ticks_per_beat = 0
+        self.start()
 
-    def forward(self):
-        if self.hstream_handle and BASS_ChannelIsActive(self.hstream_handle) == BASS_ACTIVE_PLAYING:
-            file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
-            return_position = file_position + 1000000
-            BASS_ChannelSetPosition(self.hstream_handle, return_position, BASS_POS_BYTE)
+    def start(self):
+        midi_path = self.get_path()
+        if midi_path:
+            if self.check_extension(midi_path):
+                if self._hstream_handle:
+                    BASS_ChannelStop(self._hstream_handle)
+                self._hstream_handle = BASS_MIDI_StreamCreateFile(False, str(midi_path), 0, 0, 0, 44100)
+                self.set_midi_from_file(midi_path)
+                self._size = BASS_ChannelGetLength(self._hstream_handle, BASS_POS_BYTE)
+                self._length = BASS_ChannelBytes2Seconds(self._hstream_handle, self._size)
+            return self
+        return None
 
-    """
-    Reproduce el archivo cargado, pausa el que se encuentra sonando o abre la ventana para cargarlo
-    """
+    def get_hstream_handle(self):
+        return self._hstream_handle
 
-    def playing(self):
-        file = self.playlist.get_file_to_play()
-        if not file:
-            return self.open_new_midi()
+    def get_path(self):
+        return self._path
 
-        if BASS_ChannelIsActive(self.hstream_handle) != BASS_ACTIVE_PLAYING:
-            BASS_ChannelPlay(self.hstream_handle, False)
-            self._file_state = self.GOLD_MIDI_PLAYING
-        else:
-            BASS_ChannelPause(self.hstream_handle)
-            self._file_state = self.GOLD_MIDI_PAUSED
+    def get_short_path(self):
+        return '...' + self._path[-30:]
 
-    """
-    Detiene la reproduccion
-    """
+    def get_name(self):
+        return self._path.split('.')[0].split('/')[-1]
 
-    def stop(self):
-        if self.hstream_handle:
-            BASS_ChannelStop(self.hstream_handle)
-            BASS_ChannelSetPosition(self.hstream_handle, 0, BASS_POS_BYTE)
-            self._file_state = self.GOLD_MIDI_STOP
+    def get_length(self):
+        return Utility.format_time(self._length)
 
-    def change_volume(self, level):
-        if self.hstream_handle:
-            BASS_ChannelSetAttribute(self.hstream_handle, BASS_ATTRIB_VOL + 0, level)
-        self._global_volume = level
+    def get_current_time(self):
+        file_position = BASS_ChannelGetPosition(self.get_hstream_handle(), BASS_POS_BYTE)
+        return BASS_ChannelBytes2Seconds(self.get_hstream_handle(), file_position)
 
-    def get_volume(self):
-        if self.hstream_handle:
-            import ctypes
-            volume = ctypes.c_float()
-            BASS_ChannelGetAttribute(self.hstream_handle, BASS_ATTRIB_VOL + 0, volume)
-            self._global_volume = volume
-        return self._global_volume
+    def get_file_size(self):
+        return self._size
 
-    def format_time(self, seconds):
-        string_time = str(datetime.timedelta(seconds=seconds))
+    def get_state(self):
+        return self._state
 
-        return Text(string_time, self.GOLD_MIDI_TIME_POSITION).get_text()
+    def get_tracks(self):
+        return self._tracks
 
-    """
-    Lanza la interfaz de windows para cargar un nuevo archivo
-    """
+    def set_midi_from_file(self, midi_path):
+        import binascii
+        with open(midi_path, 'rb') as f:
+            index_track = 0
+            while True:
+                content = f.read(4)
+                if len(content) == 0:
+                    print('End of file')
+                    break
+                if str(binascii.hexlify(content)).upper() == '4D546864':
+                    print('MThd track...')
+                    chunk_size = int(binascii.hexlify(f.read(4)), 16)
+                    format_file = int(binascii.hexlify(f.read(2)), 16)
+                    self._tracks = int(binascii.hexlify(f.read(2)), 16)
+                    self._ticks_per_beat = int(binascii.hexlify(f.read(2)), 16)
+                elif str(binascii.hexlify(content)).upper() == '4D54726B':
+                    chunk_size = int(binascii.hexlify(f.read(4)), 16)
+                    raw_track_events = f.read(chunk_size)
+                    index_track += 1
 
-    def open_new_midi(self):
-        Tk().withdraw()
-        self.stop()
-        new_midi = askopenfilename(
-            initialdir="./",
-            title="Select MIDI file",
-            filetypes=(("MIDI files", "*.mid"), ("all files", "*.*"))
-        )
+    def set_state(self, state):
+        self._state = state
 
-        if new_midi:
-            if new_midi.find('.mid', -4) > 5:
-                if self.hstream_handle:
-                    BASS_ChannelStop(self.hstream_handle)
-
-                self.hstream_handle = BASS_MIDI_StreamCreateFile(False, str(new_midi), 0, 0, 0, 44100)
-                self.mixer_channels = []
-                """
-                MIXER IMPLEMENTATION START
-                """
-                import binascii
-                file_name = new_midi
-                with open(file_name, 'rb') as f:
-                    number_of_tracks = None
-                    index_track = 0
-                    while True:
-                        id = f.read(4)
-                        if len(id) == 0:
-                            print('End of file', id)
-                            break
-                        if str(binascii.hexlify(id)).upper() == '4D546864':
-                            print('MThd track...')
-                            chunk_size = int(binascii.hexlify(f.read(4)), 16)
-                            format_file = int(binascii.hexlify(f.read(2)), 16)
-                            number_of_tracks = int(binascii.hexlify(f.read(2)), 16)
-                            ticks_per_beat = int(binascii.hexlify(f.read(2)), 16)
-                        elif str(binascii.hexlify(id).upper() == '4D54726B'):
-                            chunk_size = int(binascii.hexlify(f.read(4)), 16)
-                            raw_track_events = f.read(chunk_size)
-                            self.mixer_channels.append({
-                                'index': index_track,
-                                'track_info': chunk_size,
-                                'bank': BASS_MIDI_StreamGetEvent(
-                                    self.hstream_handle, index_track, MIDI_EVENT_BANK
-                                ),
-                                'program': BASS_MIDI_StreamGetEvent(
-                                    self.hstream_handle, index_track, MIDI_EVENT_PROGRAM
-                                ),
-                                'volume': BASS_MIDI_StreamGetEvent(
-                                    self.hstream_handle, index_track, MIDI_EVENT_VOLUME
-                                ),
-                                'pan': BASS_MIDI_StreamGetEvent(
-                                    self.hstream_handle, index_track, MIDI_EVENT_PAN
-                                ),
-                                'solo': False,
-                                'mute': False,
-                                'reverb': BASS_MIDI_StreamGetEvent(
-                                    self.hstream_handle, index_track, MIDI_EVENT_REVERB
-                                ),
-                                'chorus': BASS_MIDI_StreamGetEvent(
-                                    self.hstream_handle, index_track, MIDI_EVENT_CHORUS
-                                ),
-                                'reverb_delay': BASS_MIDI_StreamGetEvent(
-                                    self.hstream_handle, index_track, MIDI_EVENT_REVERB_DELAY
-                                ),
-                                'chorus_delay': BASS_MIDI_StreamGetEvent(
-                                    self.hstream_handle, index_track, MIDI_EVENT_CHORUS_DELAY
-                                )
-                            })
-                            index_track += 1
-                            print('MTrk track...', chunk_size)
-                        else:
-                            print('No track', str(binascii.hexlify(id)).upper())
-                            break
-                """
-                MIXER IMPLEMENTATION END
-                """
-                file_size = BASS_ChannelGetLength(self.hstream_handle, BASS_POS_BYTE)
-                file_lenght_seconds = BASS_ChannelBytes2Seconds(self.hstream_handle, file_size)
-                file_name = self.playlist.add_new_file(new_midi)
-
-                if self.hstream_handle:
-                    self.playing()
-                else:
-                    print('WARNING: Archivo no encontrado')
-
-    """
-    Convierte los archivos SF2 a CSF
-    """
-
-    def convert_sf2_to_csf(self):
-        Tk().withdraw()
-        sound_font_path = askopenfilename(
-            initialdir="./",
-            title="Select SF2 file",
-            filetypes=(("SF2 files", "*.sf2"), ("all files", "*.*"))
-        )
-
-        if sound_font_path:
-            if sound_font_path.find('.sf2', -4) > 5:
-                result = SoundCoder().encrypt_sound_found(sound_font_path)
-
-    def get_counter_midi(self):
-        if self.hstream_handle and self._file_state == self.GOLD_MIDI_PLAYING:
-            file_position = BASS_ChannelGetPosition(self.hstream_handle, BASS_POS_BYTE)
-            self._file_position = BASS_ChannelBytes2Seconds(self.hstream_handle, file_position)
-        elif self.hstream_handle and self._file_state == self.GOLD_MIDI_STOP:
-            self._file_position = '0:00:00'
-        return str(self._file_position)
-
-    def solo_track(self, channel):
-        if self.mixer_channels[channel]['solo']:
-            self.mixer_channels[channel]['solo'] = False
-        else:
-            self.mixer_channels[channel]['solo'] = True
-
-        solo_tracks = []
-        for track in self.mixer_channels:
-            if track['solo']:
-                solo_tracks.append(track['index'])
-
-        for track in self.mixer_channels:
-            if (track['index'] in solo_tracks and not track['mute']) or not solo_tracks:
-                BASS_MIDI_StreamEvent(self.hstream_handle, track['index'], MIDI_EVENT_VOLUME, track['volume'])
-            else:
-                BASS_MIDI_StreamEvent(self.hstream_handle, track['index'], MIDI_EVENT_VOLUME, 0)
-
-    def mute_track(self, channel):
-        if self.mixer_channels[channel]['mute']:
-            self.mixer_channels[channel]['mute'] = False
-            BASS_MIDI_StreamEvent(
-                self.hstream_handle,
-                self.mixer_channels[channel]['index'],
-                MIDI_EVENT_VOLUME,
-                self.mixer_channels[channel]['volume']
-            )
-        else:
-            self.mixer_channels[channel]['mute'] = True
-            BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_VOLUME, 0)
-
-    def set_channel_volume(self, channel, value):
-        # volume level (0-127)
-        BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_VOLUME, int(value))
-
-    def set_channel_pan(self, channel, value):
-        # TODO: Buscar en self.mixer la info del canal, actualizar el valor y escribir funcion para cambiar el paneo
-        # pan position (0-128, 0=left, 64=middle, 127=right
-        BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_PAN, int(value))
-        print(channel, value)
-
-    def set_channel_rev(self, channel, value):
-        BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_REVERB, int(value))
-        print(channel, value)
-
-    def set_channel_chorus(self, channel, value):
-        BASS_MIDI_StreamEvent(self.hstream_handle, self.mixer_channels[channel]['index'], MIDI_EVENT_CHORUS, int(value))
-        print(channel, value)
-
-    def get_channel_volume(self, channel):
-        print('Channel X: 1')
-        return 1
-
-
-"""
-Es la clase que lleva el recuento de todos los archivos MIDI abiertos en la sesion
-"""
-
-
-class Playlist:
-    def __init__(self):
-        self.files_path = []
-        self.files_name = []
-        self.active_file = 0
-
-    def get_file_to_play(self):
-        if not len(self.files_name) > 0:
-            return None
-        return [self.files_name[self.active_file], self.files_path[self.active_file]]
-
-    def add_new_file(self, file_path):
-        self.files_path.append(file_path)
-        self.files_name.append(self.clean_name_file(file_path))
-        self.active_file = self.files_path.index(file_path)
-        return self.files_name[-1]
-
-    @staticmethod
-    def clean_name_file(file_name):
-        name = file_name.split('/')[-1]
-        return name.split('.')[0]
-
-    def change_file_to_play(self, index):
-        pass
+    def check_extension(self, midi_path):
+        if midi_path.find('.mid', -4) > 5:
+            return True
 
 
 class ObjectWithStates:
@@ -873,7 +1103,7 @@ class ObjectWithStates:
             position,
             size,
             init_state,
-            get_data_function=None,
+            exec_function=None,
             params_function=None,
             target=False,
             help_text=None
@@ -883,7 +1113,7 @@ class ObjectWithStates:
         self._size = size
         self._state = init_state
         self._surface = None
-        self._get_data_function = get_data_function
+        self._exec_function = exec_function
         self._params_function = params_function
         self._drag_enabled = False
         self._target = target
@@ -904,8 +1134,6 @@ class ObjectWithStates:
             self.on_mouse_drag()
         elif event_type == EVENT_ON_MOUSE_RELEASE:
             self.on_mouse_release()
-        else:
-            self.is_dynamic_animation()
 
     def get_name(self):
         return self._name
@@ -925,6 +1153,9 @@ class ObjectWithStates:
     def get_state(self):
         return self._state
 
+    def get_help_text(self):
+        return self._help_text
+
     def set_state(self, state):
         self._state = state
 
@@ -942,24 +1173,41 @@ class ObjectWithStates:
             return True
         return False
 
+    def exec_data_function(self):
+        if not self._params_function:
+            return self._exec_function()
+        else:
+            return self._exec_function(self._params_function)
+
     def on_mouse_click(self):
         print('Click Button')
 
     def on_mouse_release(self):
+        Cursor.to_idle_state()
         print('Released Object')
 
     def on_mouse_in(self):
-        print('Over Button')
+        Cursor.to_hover_state()
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                custom_type=EVENT_HELP_TEXT_ON
+            )
+        )
 
     def on_mouse_out(self):
-        print('Out Button')
+        Cursor.to_idle_state()
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_HELP_TEXT_OFF
+                }
+            )
+        )
 
     def on_mouse_drag(self):
-        print('Dragging')
-
-    def is_dynamic_animation(self):
-        if self._get_data_function is not None:
-            self._get_data_function()
+        pass
 
     def render(self):
         return [self._surface, self._position]
@@ -973,22 +1221,63 @@ class Text(ObjectWithStates):
             position=position,
             size=(0, 0),
             init_state=STATE_ELEMENT_IDLE,
-            get_data_function=update_function,
+            exec_function=update_function,
         )
 
         self.font_family = font
         self.size_font = font_size
-        self._surface = None
         self.is_dynamic = False
+        self._text = None
         self.start()
 
     def start(self):
+        self.draw_text(self.exec_data_function())
+        return self
+
+    def draw_text(self, string):
         if not pygame.font.get_init():
             pygame.font.init()
-        text = pygame.font.Font(self.font_family, self.size_font)
-        surface = text.render(self.get_name(), True, (255, 255, 255))
-        self._surface = surface
-        return self
+        if not self._text:
+            self._text = pygame.font.Font(self.font_family, self.size_font)
+        self._surface = self._text.render(string, True, (255, 255, 255))
+
+    def update(self, event_type):
+        if event_type == EVENT_ON_DYNAMIC_TEXT:
+            self.set_active_state()
+        elif event_type == EVENT_OFF_DYNAMIC_TEXT:
+            self.set_idle_state()
+        elif event_type == EVENT_REFRESH_TEXT:
+            self.update_text()
+        ObjectWithStates.update(self, event_type)
+
+    def set_active_state(self):
+        self.set_state(STATE_ELEMENT_ACTIVE)
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_REFRESH_TEXT,
+                    "element": self
+                }
+            )
+        )
+
+    def set_idle_state(self):
+        self.set_state(STATE_ELEMENT_IDLE)
+        pygame.event.clear(pygame.USEREVENT)
+
+    def update_text(self):
+        self.draw_text(self.exec_data_function())
+        if self.get_state() == STATE_ELEMENT_ACTIVE:
+            pygame.event.post(
+                pygame.event.Event(
+                    pygame.USEREVENT,
+                    {
+                        "custom_type": EVENT_REFRESH_TEXT,
+                        "element": self
+                    }
+                )
+            )
 
 
 class Image(ObjectWithStates):
@@ -1042,7 +1331,7 @@ class Button(ObjectWithStates):
             position=position,
             size=size,
             init_state=STATE_ELEMENT_IDLE,
-            get_data_function=action,
+            exec_function=action,
             params_function=params_action,
             target=True,
             help_text=help_text
@@ -1062,7 +1351,6 @@ class Button(ObjectWithStates):
     def create_images_states(self):
         state_images_count = len(self._states_images)
         offset_image_count = len(self._sprite_offset_position_states_images)
-        print('state_images_count: ', state_images_count, "offset_image_count: ", offset_image_count)
         if state_images_count > 3 or offset_image_count > 3:
             print(
                 'ERROR: More than 3 states images or offset coordinates.'
@@ -1124,110 +1412,166 @@ class Button(ObjectWithStates):
     def get_active_offset_position(self):
         return self._sprite_offset_position_states_images[3]
 
+    def update(self, event_type):
+        ObjectWithStates.update(self, event_type)
+        if event_type == EVENT_ON_MOUSE_CLICK_RELEASE:
+            self.on_mouse_click_release()
+
     def on_mouse_in(self):
-        self._surface = self._hover_image_surface.get_surface()
-        self.set_state(STATE_ELEMENT_HOVER)
+        ObjectWithStates.on_mouse_in(self)
+        if self.get_state() != STATE_ELEMENT_ACTIVE:
+            if self._hover_image_surface:
+                self._surface = self._hover_image_surface.get_surface()
+            self.set_state(STATE_ELEMENT_HOVER)
 
     def on_mouse_out(self):
-        self._surface = self._idle_image_surface.get_surface()
-        self.set_state(STATE_ELEMENT_IDLE)
+        ObjectWithStates.on_mouse_out(self)
+        if self.get_state() != STATE_ELEMENT_ACTIVE:
+            if self._idle_image_surface:
+                self._surface = self._idle_image_surface.get_surface()
+            self.set_state(STATE_ELEMENT_IDLE)
 
     def on_mouse_click(self):
-        if self._params_function:
-            self._get_data_function(self._params_function)
+        if self._params_function is not None:
+            self._exec_function(self._params_function)
         else:
-            self._get_data_function()
+            self._exec_function()
         if self.get_state() == STATE_ELEMENT_ACTIVE:
+            self.set_state(STATE_ELEMENT_HOVER)
             if self._hover_image_surface:
-                self.set_state(STATE_ELEMENT_HOVER)
                 self._surface = self._hover_image_surface.get_surface()
             else:
-                self.set_state(STATE_ELEMENT_IDLE)
                 self._surface = self._idle_image_surface.get_surface()
         else:
+            self.set_state(STATE_ELEMENT_ACTIVE)
             if self._active_image_surface:
-                self.set_state(STATE_ELEMENT_ACTIVE)
                 self._surface = self._active_image_surface.get_surface()
-            else:
-                self.set_state(STATE_ELEMENT_IDLE)
+            elif self._idle_image_surface:
                 self._surface = self._idle_image_surface.get_surface()
+            else:
+                self._surface = pygame.Surface(self.get_size())
+
+    def on_mouse_click_release(self):
+        self.set_state(STATE_ELEMENT_IDLE)
+        if self._idle_image_surface:
+            self._surface = self._idle_image_surface.get_surface()
 
 
-class HorizontalSlider(ObjectWithStates):
-    def __init__(self,
-                 name,
-                 position,
-                 size,
-                 puller_size,
-                 action,
-                 get_data_function=None,
-                 width_level_marker=5,
-                 init_puller_position=1,
-                 min_value=0,
-                 max_value=1
-                 ):
+class Slider(ObjectWithStates):
+    def __init__(
+            self,
+            name,
+            position,
+            size,
+            axis_direction,
+            puller_size,
+            exec_function,
+            get_function,
+            level_marker_width,
+            init_puller_position,
+            min_value,
+            max_value,
+            params_function=None
+    ):
         ObjectWithStates.__init__(
             self,
             name=name,
             position=position,
             size=size,
-            init_state=STATE_ELEMENT_INACTIVE,
+            init_state=STATE_ELEMENT_IDLE,
             target=True
         )
-        self._action = action
-        self._get_data_function = get_data_function
+        self._exec_function = exec_function
+        self._get_function = get_function
         self._puller_size = puller_size
-        self._level_size_width = width_level_marker
+        self._level_marker_width = level_marker_width
         self._puller_position = init_puller_position
         self._min_value = min_value
         self._max_value = max_value
+        self._axis_direction = axis_direction
+        self._params_function = params_function
         self.start()
 
     def start(self):
         self._surface = pygame.Surface(self.get_total_size(), pygame.SRCALPHA)
         position_level, size_level = self.get_level_bar_area()
-        self.set_position((self.get_position()[0], self.get_position()[1] - position_level[1]))
-        self.draw_slider(self.get_puller_absolute_position_from_volume())
+        if self._axis_direction:
+            self.set_position((self.get_position()[0] - position_level[0], self.get_position()[1]))
+        else:
+            self.set_position((self.get_position()[0], self.get_position()[1] - position_level[1]))
+
+        self.draw_slider(self.get_puller_absolute_position_from_value())
         return self
 
     def get_total_size(self):
-        y = self._puller_size[1] if self._puller_size[1] > self._size[1] else self._size[1]
-        return self._size[0], y
+        if self._axis_direction:
+            return self._puller_size[0] if self._puller_size[0] > self._size[0] else self._size[0], self._size[1]
+        else:
+            return self._size[0], self._puller_size[1] if self._puller_size[1] > self._size[1] else self._size[1]
 
     def get_level_bar_area(self):
-        x, y = self._surface.get_size()
-        level_position_y = (y / 2) - (self._level_size_width / 2)
-        return [(0, level_position_y), (x, self._level_size_width)]
-
-    def get_puller_absolute_position_from_volume(self):
-        x = self.linear(
-            self._get_data_function(),
-            self._min_value,
-            self._max_value,
-            self.get_position()[0],
-            (self.get_position()[0] + self.get_total_size()[0])
-        )
-        return x
+        x, y = self.get_total_size()
+        if self._axis_direction:
+            level_position_x = (x / 2) - (self._level_marker_width / 2)
+            return [(level_position_x, 0), (self._level_marker_width, y + self.get_puller_size()[1])]
+        else:
+            level_position_y = (y / 2) - (self._level_marker_width / 2)
+            return [(0, level_position_y), (x, self._level_marker_width)]
 
     def get_puller_size(self):
         return self._puller_size
 
+    def get_puller_absolute_position_from_value(self):
+        position_x, position_y = self.get_position()
+        if self._params_function is not None:
+            value = self._get_function(self._params_function)
+        else:
+            value = self._get_function()
+        if self._axis_direction:
+            y = Utility.linear(
+                value,
+                self._min_value,
+                self._max_value,
+                position_y,
+                position_y + self.get_total_size()[1]
+            )
+            return y
+        else:
+            x = Utility.linear(
+                value,
+                self._min_value,
+                self._max_value,
+                position_x,
+                (position_x + self.get_total_size()[0])
+            )
+            return x
+
     def check_borders(self, position):
-        x_min = self.get_position()[0]
-        x_max = (self.get_total_size()[0] + x_min) - self.get_puller_size()[0]
+        if self._axis_direction:
+            min = self.get_position()[1]
+            max = (self.get_size()[1] + min) - (self.get_puller_size()[1] / 2)
+        else:
+            min = self.get_position()[0]
+            max = (self.get_total_size()[0] + min) - self.get_puller_size()[0]
+
         new_position = position
-        if position < x_min:
-            new_position = x_min
-        elif position > x_max:
-            new_position = x_max
-        return new_position - x_min
+        if position < min:
+            new_position = min
+        elif position > max:
+            new_position = max
+
+        return new_position - min
 
     def draw_slider(self, puller_raw_position):
         position_level, size_level = self.get_level_bar_area()
         level_bar = pygame.Surface(size_level, pygame.SRCALPHA)
-        level_bar.fill((235, 180, 0))
-        puller = pygame.image.load(self.get_name() + '.png')
-        puller_position = (self.check_borders(puller_raw_position), 0)
+        level_bar.fill(COLOR_YELLOW)
+        if self._axis_direction:
+            puller = pygame.image.load('slider_puller_v.png')  # FIX
+            puller_position = (0, self.check_borders(puller_raw_position))  # Fix
+        else:
+            puller = pygame.image.load('slider_puller.png')  # FIX
+            puller_position = (self.check_borders(puller_raw_position), 0)
         self._surface.blits(((level_bar, position_level), (puller, puller_position)))
 
     def on_mouse_click(self):
@@ -1235,176 +1579,172 @@ class HorizontalSlider(ObjectWithStates):
         self.set_state(STATE_ELEMENT_ACTIVE)
         x, y = pygame.mouse.get_pos()
         self.draw_slider(x)
-        volume = self.linear(x, self.get_position()[0], self.get_total_size()[0], self._min_value, self._max_value)
-        self._action(volume)
+        if self._axis_direction:
+            value = Utility.linear(
+                self.check_borders(y),
+                0,
+                self.get_size()[1] - self.get_puller_size()[1],
+                self._min_value,
+                self._max_value
+            )
+        else:
+            value = Utility.linear(
+                self.check_borders(x),
+                0,
+                self.get_total_size()[0] - self.get_puller_size()[0],
+                self._min_value,
+                self._max_value
+            )
+        if self._params_function is not None:
+            self._exec_function(self._params_function, value)
+        else:
+            self._exec_function(value)
 
     def on_mouse_drag(self):
         x, y = pygame.mouse.get_pos()
-        volume = self.linear(x, self.get_position()[0], self.get_total_size()[0], self._min_value, 10)
         self.draw_slider(x)
-        self._action(volume)
+        if self._axis_direction:
+            value = Utility.linear(
+                self.check_borders(y),
+                0,
+                self.get_size()[1] - self.get_puller_size()[1],
+                self._min_value,
+                self._max_value
+            )
+        else:
+            value = Utility.linear(
+                self.check_borders(x),
+                0,
+                self.get_total_size()[0] - self.get_puller_size()[0],
+                self._min_value,
+                self._max_value
+            )
+        if self._params_function is not None:
+            self._exec_function(self._params_function, value)
+        else:
+            self._exec_function(value)
 
     def on_mouse_release(self):
         self.set_draggable(False)
         self.set_state(STATE_ELEMENT_IDLE)
 
-    def linear(self, value, min_in, max_in, min_out, max_out):
-        return (
-                       ((float(value) - float(min_in)) * (float(max_out) - float(min_out))
-                        ) / (float(max_in) - float(min_in))) + float(min_out)
 
-class VerticalSlider:
-    def __init__(self,
-                 position,
-                 bar_size,
-                 puller_size,
-                 function,
-                 params=None,
-                 puller_image='slider_puller_v',
-                 width_level_marker=5,
-                 init_puller_position=1,
-                 get_data_function=None
-                 ):
-        self._position = position
-        self._puller_position = (0, position[1])
-        self._puller_image_name = puller_image
-        self._puller = pygame.image.load(self._puller_image_name + '.png')
-        self._size_puller = puller_size
-        self._size_bar = bar_size
-        self._size_level_marker = (width_level_marker, self._size_bar[1])
-        self._draggable = False
-        self._level_marker = None
-        self._shader = None
-        self._action = function
-        self._shader = None
-        self.function = self.drag_puller
-        self.function_parameters = params
-        self._get_data_function = get_data_function
-        self._puller_position = (
-            self._puller_position[0],
-            self.get_puller_position(init_puller_position)
+class HorizontalSlider(Slider):
+    def __init__(
+            self,
+            puller_image_name,
+            position,
+            size,
+            puller_size,
+            exec_function,
+            get_function=None,
+            level_marker_width=5,
+            init_puller_position=1.0,
+            min_value=0,
+            max_value=1
+    ):
+        Slider.__init__(
+            self,
+            name=puller_image_name,
+            position=position,
+            size=size,
+            puller_size=puller_size,
+            exec_function=exec_function,
+            get_function=get_function,
+            level_marker_width=level_marker_width,
+            init_puller_position=init_puller_position,
+            min_value=min_value,
+            max_value=max_value,
+            axis_direction=0
         )
 
-        if self._get_data_function:
-            value = self._get_data_function(self.function_parameters)
-            if value:
-                self._puller_position = (self._puller_position[0], self.get_puller_position(value))
-                self._size_level_marker = (self._size_level_marker[0], self._size_bar[1])
 
-        self.blits_slider()
-
-    def get_slider(self):
-        return self
-
-    def get_type(self):
-        return self._type
-
-    def get_puller_position(self, value):
-        if hasattr(value, 'value'):
-            value = value.value
-        print(int(self._size_bar[1] * value) - self._size_bar[1], value)
-        return int(self._size_bar[1] * value) - self._size_bar[1]
-
-    def get_coordinates(self):
-        return [self._position, self._size_bar]
-
-    def blits_slider(self):
-        self._shader = pygame.Surface(self._size_bar, pygame.SRCALPHA)
-        level_marker = pygame.Surface(self._size_level_marker, pygame.HWSURFACE)
-        level_marker.fill((235, 180, 0))
-        self._shader.blits(((level_marker, (8, self._puller_position[1])), (self._puller, self._puller_position)))
-
-    def drag_puller(self, channel):
-        self._draggable = True
-
-    def scale_value_in_range(self, old_range, new_range, value):
-        return ((value - old_range[0]) * (new_range[1] + new_range[0]) / (old_range[1] + old_range[0])) + new_range[0]
-
-    def update(self, event_type):
-        if event_type == EVENT_MOUSE_BUTTON_UP:
-            self._draggable = False
-            axis_level_size = self._size_bar[1] - (self._size_puller[1] / 2)
-            new_level = float(axis_level_size - self._puller_position[1])
-            value = self.scale_value_in_range((0, axis_level_size), (0, 127), new_level)
-            self._action(self.function_parameters, value)
-        else:
-            if self._draggable:
-                mouse_coordenates = pygame.mouse.get_pos()
-                y_mouse = mouse_coordenates[1]
-                x_position, y_position = self._position
-                new_position = y_mouse - y_position
-                if new_position < 0:
-                    new_position = 0
-                elif new_position + (self._size_puller[1] / 2) > self._size_bar[1]:
-                    new_position = self._size_bar[1] - (self._size_puller[1] / 2)
-                self._puller_position = (self._puller_position[0], new_position)
-                self._size_level_marker = (self._size_level_marker[0], self._size_bar[1])
-                self._shader = None
-                self.blits_slider()
-
-    def render(self):
-        return [self._shader, self._position]
+class VerticalSlider(Slider):
+    def __init__(
+        self,
+        puller_image_name,
+        position,
+        size,
+        puller_size,
+        exec_function,
+        params_function=None,
+        get_function=None,
+        level_marker_width=5,
+        init_puller_position=1,
+        min_value=0,
+        max_value=1
+    ):
+        Slider.__init__(
+            self,
+            name=puller_image_name,
+            position=position,
+            size=size,
+            puller_size=puller_size,
+            exec_function=exec_function,
+            params_function=params_function,
+            get_function=get_function,
+            level_marker_width=level_marker_width,
+            init_puller_position=init_puller_position,
+            min_value=min_value,
+            max_value=max_value,
+            axis_direction=1
+        )
 
 
-class RollButton:
-    def __init__(self, position, size, function, params, init_sprite_position, image='sprite'):
-        self._position = position
-        self._size = size
-        self._action = function
-        self._action_params = params
-        self._rolleable = False
+class RollButton(ObjectWithStates):
+    def __init__(self, name, position, size, exec_function, params_function, init_sprite_position, image='sprite'):
+        ObjectWithStates.__init__(
+            self,
+            name=name,
+            position=position,
+            size=size,
+            init_state=STATE_ELEMENT_IDLE,
+            exec_function=exec_function,
+            params_function=params_function,
+            target=True
+        )
         self._init_mouse_position = None
-        self._value = None
         self._sprite = pygame.image.load(image + '.png')
         self._sprite_position = init_sprite_position
-        self._shader = pygame.Surface(self._size, pygame.SRCALPHA)
+        self.start()
 
+    def start(self):
         self.blit_roll_button(self._sprite_position)
-
-    def get_roll_button(self):
-        return self
-
-    def get_type(self):
-        return self._type
-
-    def get_coordinates(self):
-        return [self._position, self._size]
-
-    def function(self):
-        self._rolleable = True
-        self._init_mouse_position = pygame.mouse.get_pos()
 
     def scale_value_in_range(self, old_range, new_range, value):
         return ((value - old_range[0]) * (new_range[1] + new_range[0]) / (old_range[1] + old_range[0])) + new_range[0]
 
     def blit_roll_button(self, position):
-        self._shader.blit(self._sprite, (0, 0), pygame.Rect((position, 124), (21, 18)))
+        surface = pygame.Surface(self._size, pygame.SRCALPHA)
+        surface.blit(self._sprite, (0, 0), pygame.Rect((position, 124), (21, 18)))
         if DEBUG:
-            self._shader.fill((255, 255, 0, 125))
+            surface.fill((255, 255, 0, 125))
+        self._surface = surface
 
-    def update(self, event_type):
-        if event_type == EVENT_MOUSE_BUTTON_UP:
-            self._rolleable = False
-            self._init_mouse_position = None
-            value = self.scale_value_in_range((109, -235), (0, 127), self._sprite_position) * -1
-            self._action(self._action_params, value)
-            self._value = None
+    def on_mouse_click(self):
+        self.set_draggable(True)
+        self.set_state(STATE_ELEMENT_ACTIVE)
+        self._init_mouse_position = pygame.mouse.get_pos()
+
+    def on_mouse_release(self):
+        self.set_draggable(False)
+        self.set_state(STATE_ELEMENT_IDLE)
+        self._init_mouse_position = None
+        value = self.scale_value_in_range((109, -235), (0, 127), self._sprite_position) * -1
+        self._exec_function(self._params_function, value)
+
+    def on_mouse_drag(self):
+        current_position = pygame.mouse.get_pos()
+        value = current_position[0] - self._init_mouse_position[0]
+        if value > 0:
+            self._sprite_position += self._size[0]
+            if self._sprite_position > 235:
+                self._sprite_position = 235
         else:
-            if self._rolleable:
-                current_position = pygame.mouse.get_pos()
-                self._value = current_position[0] - self._init_mouse_position[0]
-                if self._value > 0:
-                    self._sprite_position += self._size[0]
-                    if self._sprite_position > 235:
-                        self._sprite_position = 235
-                else:
-                    self._sprite_position -= self._size[0]
-                    if self._sprite_position < 109:
-                        self._sprite_position = 109
-                self.blit_roll_button(self._sprite_position)
-
-    def render(self):
-        return [self._shader, self._position]
+            self._sprite_position -= self._size[0]
+            if self._sprite_position < 109:
+                self._sprite_position = 109
+        self.blit_roll_button(self._sprite_position)
 
 
 class FormField:
@@ -1482,6 +1822,24 @@ class FormField:
 
     def render(self):
         return [self._shader, self._position]
+
+
+class Utility:
+    @staticmethod
+    def linear(value, min_in, max_in, min_out, max_out):
+        return (
+                       ((float(value) - float(min_in)) * (float(max_out) - float(min_out))
+                        ) / (float(max_in) - float(min_in))) + float(min_out)
+
+    @staticmethod
+    def format_time(seconds):
+        return str(datetime.timedelta(seconds=seconds))
+
+    @staticmethod
+    def set_nested_value(dic, keys, value):
+        for key in keys[:-1]:
+            dic = dic.setdefault(key, {})
+        dic[keys[-1]] = value
 
 
 class Cursor:
