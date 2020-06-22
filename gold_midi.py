@@ -1,27 +1,28 @@
 """
 
 """
-import pygame, os, time, datetime
+import pygame, os, time, datetime, re
 from pybass import *
 from pybass.pybassmidi import *
 from encrypter import SoundCoder
 from Tkinter import Tk
 from tkFileDialog import askopenfilename
 
-DEBUG = False
+DEBUG = True
 
 WINDOW_INIT_X = 800
-WINDOW_INIT_Y = 91
+WINDOW_INIT_Y = 344
 WINDOW_PIANO_ROLL_Y = 114
 WINDOW_MIXER_Y = 144
 WINDOW_SETTINGS_Y = 350
 WINDOW_PLAYLIST_Y = 216
-WINDOW_MAIN_HELP_TEXT_POSITION = (14, 79)
+WINDOW_MAIN_HELP_TEXT_POSITION = (24, 324)
 WINDOW_SETTINGS_HELP_TEXT_POSITION = (533, 8)
 
-GOLD_MIDI_NAME_POSITION = (270, 11)
-GOLD_MIDI_TIME_POSITION = (270, 25)
-GOLD_MIDI_CURRENT_TIME_POSITION = (405, 25)
+GOLD_MIDI_TEXT_NAME_POSITION = (158, 173)
+GOLD_MIDI_TEXT_TIME_POSITION = (158, 240)
+GOLD_MIDI_TEXT_CURRENT_TIME_POSITION = (155, 215)
+GOLD_MIDI_TEXT_CURRENT_GLOBAL_VOLUME = (87, 100)
 
 COLOR_YELLOW = (235, 180, 0)
 
@@ -300,8 +301,11 @@ class MidiPlayer:
     def get_program_text(self, channel):
         return str(self.playlist.get_mixer_value(channel, MIX_ATTR_PROGRAM))
 
-    def get_global_volume(self):
+    def get_float_current_global_volume(self):
         return self.playlist.get_global_volume()
+
+    def get_str_current_global_volume(self):
+        return str(self.playlist.get_global_volume() * 100).split('.')[0]
 
     def get_tempo(self):
         return self.playlist.get_tempo()
@@ -318,7 +322,7 @@ class MidiPlayer:
     def get_midi_time(self):
         midi = self.playlist.get_active_file()
         if midi:
-            return midi.get_length()
+            return Utility.format_time(midi.get_length())
         return '00:00:00'
 
     def get_current_midi_time(self):
@@ -348,6 +352,15 @@ class MidiPlayer:
         return self.playlist.get_channel_volume(channel)
 
     def set_global_volume(self, level):
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_REFRESH_TEXT,
+                    "element": self.get_element_by_name('Current Volume')
+                }
+            )
+        )
         self.playlist.set_global_volume(level)
 
     def set_tempo(self, tempo):
@@ -437,152 +450,196 @@ class MidiPlayer:
             Image(name='main_screen', position=(0, 0), size=(WINDOW_INIT_X, WINDOW_INIT_Y)),
             Button(
                 name='playlist',
-                position=(254, 10),
-                size=(278, 27),
+                position=(151, 157),
+                size=(442, 45),
                 action=self.toggle_screen,
                 params_action=PLAYLIST_SCREEN,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(59, 0),  (501, 0)],
                 help_text='Show/Hide Playlist'
             ),
             Text(
                 content='MIDI Name',
-                position=GOLD_MIDI_NAME_POSITION,
+                position=GOLD_MIDI_TEXT_NAME_POSITION,
+                font='./fonts/conthrax-sb.ttf',
+                font_size=14,
                 update_function=self.get_midi_name
             ),
             Text(
                 content='MIDI Time',
-                position=GOLD_MIDI_TIME_POSITION,
+                position=GOLD_MIDI_TEXT_TIME_POSITION,
+                font='./fonts/conthrax-sb.ttf',
+                font_size=10,
                 update_function=self.get_midi_time
             ),
             Text(
                 content='MIDI Current Time',
-                position=GOLD_MIDI_CURRENT_TIME_POSITION,
+                position=GOLD_MIDI_TEXT_CURRENT_TIME_POSITION,
+                font='./fonts/conthrax-sb.ttf',
+                font_size=21,
                 update_function=self.get_current_midi_time
+            ),
+            Text(
+                content='Current Volume',
+                position=GOLD_MIDI_TEXT_CURRENT_GLOBAL_VOLUME,
+                font='./fonts/conthrax-sb.ttf',
+                update_function=self.get_str_current_global_volume
             ),
             Text(
                 content='Help Text',
                 position=WINDOW_MAIN_HELP_TEXT_POSITION,
                 update_function=self.get_hover_element_help_text
             ),
-            HorizontalSlider(
-                puller_image_name='volume',
-                position=(588, 80),
-                size=(151, 5),
-                puller_size=(10, 10),
-                exec_function=self.set_global_volume,
-                get_function=self.get_global_volume
+            Text(
+                content='Debug',
+                position=(0,0),
+                update_function=self.debug_text
             ),
-            HorizontalSlider(
+            VerticalSlider(
+                puller_image_name='volume',
+                position=(87, 136),
+                size=(30, 159),
+                puller_size=(30, 16),
+                exec_function=self.set_global_volume,
+                get_function=self.get_float_current_global_volume
+            ),
+            VerticalSlider(
                 puller_image_name='tempo',
-                position=(588, 51),
-                size=(151, 5),
-                puller_size=(10, 10),
+                position=(717, 140),
+                size=(31, 147),
+                puller_size=(30, 17),
                 init_puller_position=0.5,
                 exec_function=self.set_tempo,
                 get_function=self.get_tempo
             ),
-            HorizontalSlider(
+            VerticalSlider(
                 puller_image_name='transpose',
-                position=(588, 66),
-                size=(151, 5),
-                puller_size=(10, 10),
+                position=(650, 140),
+                size=(31, 147),
+                puller_size=(30, 17),
                 init_puller_position=0.5,
                 exec_function=self.set_transpose,
                 get_function=self.get_transpose
             ),
             Button(
                 name='open_file',
-                position=(213, 3),
-                size=(37, 37),
+                position=(143, 92),
+                size=(54, 58),
                 action=self.open_new_midi,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (81, 0)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (0, 59)],
                 help_text='Open new MIDI file'
             ),
             Button(
                 name='mixer',
-                position=(591, 3),
-                size=(37, 37),
+                position=(430, 92),
+                size=(54, 58),
                 action=self.toggle_screen,
                 params_action=MIXER_SCREEN,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (161, 0)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (289, 59)],
                 help_text='Show/Hide Mixer'
             ),
             Button(
                 name='piano_roll',
-                position=(634, 3),
-                size=(37, 37),
+                position=(488, 92),
+                size=(54, 58),
                 action=self.toggle_screen,
                 params_action=PIANO_ROLL_SCREEN,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (203, 0)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (350, 59)],
                 help_text='Show/Hide Piano roll'
             ),
             Button(
                 name='open_sound_font',
-                position=(674, 3),
-                size=(37, 37),
+                position=(258, 92),
+                size=(54, 58),
                 action=self.open_sound_font,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (243, 0)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (116, 59)],
                 help_text='Open new SoundFont file'
             ),
             Button(
                 name='convert_to_csf',
-                position=(716, 3),
-                size=(37, 37),
+                position=(316, 92),
+                size=(54, 58),
                 action=self.convert_sf2_to_csf,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (285, 0)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (175, 59)],
                 help_text='Convert SF2 to CSF format'
             ),
             Button(
                 name='settings',
-                position=(757, 3),
-                size=(37, 37),
+                position=(545, 92),
+                size=(54, 58),
                 action=self.toggle_screen,
                 params_action=SETTINGS_SCREEN,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (325, 0)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (407, 59)],
                 help_text='Toggle Settings Screen'
             ),
             Button(
                 name='rewind',
-                position=(294, 47),
-                size=(37, 37),
+                position=(273, 263),
+                size=(52, 53),
                 action=self.rewind,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (148, 84)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (520, 47)],
                 help_text='Rewind'
             ),
             Button(
                 name='play',
-                position=(337, 47),
-                size=(37, 37),
+                position=(493, 263),
+                size=(52, 53),
                 action=self.play,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (191, 84), (192, 40)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (739, 47), (738, 102)],
+                help_text='Play'
+            ),
+            Button(
+                name='pause',
+                position=(547, 263),
+                size=(52, 53),
+                action=self.play,
+                idle_hover_active_state_image=['sprite'],
+                idle_hover_active_sprite_offset_position=[(0, 0), (790, 47), (790, 102)],
                 help_text='Play'
             ),
             Button(
                 name='stop',
-                position=(380, 47),
-                size=(37, 37),
+                position=(438, 263),
+                size=(52, 53),
                 action=self.stop,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (233, 84)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (684, 47)],
                 help_text='Stop'
             ),
             Button(
                 name='forward',
-                position=(421, 47),
-                size=(37, 37),
+                position=(329, 263),
+                size=(52, 53),
                 action=self.forward,
                 idle_hover_active_state_image=['sprite'],
-                idle_hover_active_sprite_offset_position=[(0, 0), (274, 84)],
+                idle_hover_active_sprite_offset_position=[(0, 0), (576, 47)],
                 help_text='Forward'
             )
         ]
+
+    # TODO: Delete function
+    def debug_text(self):
+        if self.playlist.get_soundfont():
+            data = BASS_MIDI_FONTINFO()
+            BASS_MIDI_FontGetInfo(self.playlist.get_soundfont()[-1], data)
+            index_preset = 0
+            index_bank = 0
+            preset = ''
+            while preset is not None:
+                preset = BASS_MIDI_FontGetPreset(self.playlist.get_soundfont()[-1], index_preset, index_bank)
+                if preset:
+                    print(str(index_preset) + ': ' + preset)
+                index_preset += 1
+            return 'data'
+        return 'Test'
 
     def draw_settings_screen(self):
         return [
@@ -851,6 +908,16 @@ class MidiPlayer:
 
     def open_sound_font(self):
         self.playlist.open_sound_font()
+        # TODO: Delete Event
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_REFRESH_TEXT,
+                    "element": self.get_element_by_name('Debug')
+                }
+            )
+        )
 
     def convert_sf2_to_csf(self):
         Tk().withdraw()
@@ -993,7 +1060,7 @@ class Playlist:
 
     def __init__(self):
         self._midi_list = []
-        self._sound_font = None
+        self._sound_font_list = []
         self._player_state = STATE_GOLD_MIDI_STOP
         self._mixer_channels = {}
         self._global_volume = 1
@@ -1033,6 +1100,9 @@ class Playlist:
 
     def get_playlist(self):
         return self._midi_list
+
+    def get_soundfont(self):
+        return self._sound_font_list
 
     def set_mixer_value(self, channel, param, value):
         if param in self._mixer_channels['channel_' + str(channel)]:
@@ -1254,12 +1324,12 @@ class Playlist:
 
             """ File is suported. Loading: """
             if file_type_supported:
-                self._sound_font = BASS_MIDI_FONT(BASS_MIDI_FontInit(str(new_sound_font), 0), -1, 0)
-
+                self._sound_font_list.append(BASS_MIDI_FontInit(str(new_sound_font), 0))
+                init_font = BASS_MIDI_FONT(self._sound_font_list[-1], -1, 0)
                 if self.get_active_file() and self.get_active_file().get_hstream_handle() is not None:
-                    BASS_MIDI_StreamSetFonts(self.get_active_file().get_hstream_handle(), self._sound_font, 1)
+                    BASS_MIDI_StreamSetFonts(self.get_active_file().get_hstream_handle(), init_font, 1)
 
-                BASS_MIDI_StreamSetFonts(0, self._sound_font, 1)
+                BASS_MIDI_StreamSetFonts(0, init_font, 1)
 
             if is_sound_font_coded and os.path.exists(new_sound_font):
                 os.remove(new_sound_font)
@@ -1299,10 +1369,11 @@ class Midi:
         return '...' + self._path[-30:]
 
     def get_name(self):
-        return self._path.split('.')[0].split('/')[-1]
+        name = re.search('.*[/](.*)[.]([a-zA-Z]{3,4}$)', self._path)
+        return name.groups()[0]
 
     def get_length(self):
-        return Utility.format_time(self._length)
+        return self._length
 
     def get_current_time(self):
         file_position = BASS_ChannelGetPosition(self.get_hstream_handle(), BASS_POS_BYTE)
@@ -1746,149 +1817,109 @@ class Slider(ObjectWithStates):
         self.start()
 
     def start(self):
-        position_level, size_level = self.get_level_bar_area()
-        if self._axis_direction:
-            self.set_position((self.get_position()[0] - position_level[0], self.get_position()[1]))
-        else:
-            self.set_position((self.get_position()[0], self.get_position()[1] - position_level[1]))
-
-        self.draw_slider(self.get_puller_absolute_position_from_value())
+        self.draw_slider()
         return self
 
     def get_coordinates(self):
-        if self._axis_direction:
-            size = (self._size[0] + 5, self._size[1])
-        else:
-            size = (self._size[0], self._size[1] + 5)
+        size = list(self._size)
+        size[self._axis_direction] += 5
         return [self._position, size]
 
     def get_total_size(self):
-        if self._axis_direction:
-            return self._puller_size[0] if self._puller_size[0] > self._size[0] else self._size[0], self._size[1]
-        else:
-            return self._size[0], self._puller_size[1] if self._puller_size[1] > self._size[1] else self._size[1]
+        size = list(self.get_size())
+        opposite_axis = 0 if self._axis_direction == 1 else 1
+        size[opposite_axis] = self._puller_size[opposite_axis] if self._puller_size[opposite_axis] > self._size[opposite_axis] else self._size[opposite_axis]
+        return size
 
     def get_level_bar_area(self):
-        x, y = self.get_total_size()
-        if self._axis_direction:
-            level_position_x = (x / 2) - (self._level_marker_width / 2)
-            return [(level_position_x, 0), (self._level_marker_width, y + self.get_puller_size()[1])]
-        else:
-            level_position_y = (y / 2) - (self._level_marker_width / 2)
-            return [(0, level_position_y), (x, self._level_marker_width)]
+        init_position = self.get_size()[self._axis_direction] / 2 -\
+            self._level_marker_width / 2
+        level_position = [init_position, init_position]
+        level_position[self._axis_direction] = self.get_puller_position()
+        total_size = [self._level_marker_width, self._level_marker_width]
+        total_size[self._axis_direction] = (self.get_position()[self._axis_direction] +\
+            self.get_size()[self._axis_direction]) - self.get_puller_position()
+
+        return [tuple(level_position), tuple(total_size)]
 
     def get_puller_size(self):
         return self._puller_size
 
+    def get_puller_position(self):
+        return self._puller_position
+
     def get_puller_absolute_position_from_value(self):
-        position_x, position_y = self.get_position()
+        position = self.get_position()
         if self._params_function is not None:
             value = self._get_function(self._params_function)
         else:
             value = self._get_function()
-        if self._axis_direction:
-            y = Utility.linear(
-                value,
-                self._min_value,
-                self._max_value,
-                position_y + self.get_total_size()[1],
-                position_y
-            )
-            return y
-        else:
-            x = Utility.linear(
-                value,
-                self._min_value,
-                self._max_value,
-                position_x,
-                (position_x + self.get_total_size()[0])
-            )
-            return x
+
+        axis = Utility.linear(
+            value,
+            self._min_value,
+            self._max_value,
+            position[self._axis_direction],
+            position[self._axis_direction] +
+            self.get_total_size()[self._axis_direction] -
+            self.get_puller_size()[self._axis_direction]
+        )
+        return axis
 
     def check_borders(self, position):
-        if self._axis_direction:
-            min = self.get_position()[1]
-            max = (self.get_size()[1] + min) - (self.get_puller_size()[1] / 2)
-        else:
-            min = self.get_position()[0]
-            max = (self.get_total_size()[0] + min) - self.get_puller_size()[0]
-
         new_position = position
-        if position < min:
-            new_position = min
-        elif position > max:
-            new_position = max
+        if position < self._min_value:
+            new_position = self._min_value
+        elif position > self._max_value:
+            new_position = self._max_value
+        return new_position
 
-        return new_position - min
-
-    def draw_slider(self, puller_raw_position):
+    def draw_slider(self):
         self._surface = pygame.Surface(self.get_total_size(), pygame.SRCALPHA)
+        DEBUG = False
+        if DEBUG:
+            self._surface.fill((200, 177, 0))
         position_level, size_level = self.get_level_bar_area()
         level_bar = pygame.Surface(size_level, pygame.SRCALPHA)
         level_bar.fill(COLOR_YELLOW)
-        if self._axis_direction:
-            puller = pygame.image.load('slider_puller_v.png')  # FIX
-            puller_position = (0, self.check_borders(puller_raw_position))  # Fix
-            position_level = (position_level[0], puller_position[1])
-        else:
-            puller = pygame.image.load('slider_puller.png')  # FIX
-            puller_position = (self.check_borders(puller_raw_position), 0)
+        puller = pygame.image.load('slider_puller_v.png')  # FIX
+        puller_position = [0, 0]
+        puller_position[self._axis_direction] = Utility.linear(
+            self._puller_position,
+            self._min_value,
+            self._max_value,
+            self.get_total_size()[self._axis_direction] - (self.get_puller_size()[self._axis_direction]),
+            0
+        )
         self._surface.blits(((level_bar, position_level), (puller, puller_position)))
 
     def on_mouse_click(self):
         self.set_draggable(True)
         self.set_state(STATE_ELEMENT_ACTIVE)
-        x, y = pygame.mouse.get_pos()
+        self.set_slider()
+        self.draw_slider()
 
-        if self._axis_direction:
-            self.draw_slider(y)
-            puller_position_y = y - self.get_size()[1]
-            value = Utility.linear(
-                puller_position_y,
-                self.get_size()[1] + (self.get_puller_size()[1]),
-                0,
-                self._min_value,
-                self._max_value
-            )
-        else:
-            self.draw_slider(x)
-            value = Utility.linear(
-                self.check_borders(x),
-                0,
-                self.get_total_size()[0] - self.get_puller_size()[0],
-                self._min_value,
-                self._max_value
-            )
+    def on_mouse_drag(self):
+        if self.is_drag_enabled():
+            self.set_slider()
+            self.draw_slider()
+
+    def set_slider(self):
+        mouse_position = pygame.mouse.get_pos()
+        value = self.check_borders(Utility.linear(
+            ((self.get_total_size()[self._axis_direction] + self.get_position()[self._axis_direction]) -
+             mouse_position[self._axis_direction]) + self.get_position()[self._axis_direction],
+            self.get_position()[self._axis_direction] + (self.get_puller_size()[self._axis_direction] / 2),
+            (self.get_size()[self._axis_direction] - (self.get_puller_size()[self._axis_direction] / 2)) +
+            self.get_position()[self._axis_direction],
+            self._min_value,
+            self._max_value
+        ))
         if self._params_function is not None:
             self._exec_function(self._params_function, value)
         else:
             self._exec_function(value)
-
-    def on_mouse_drag(self):
-        if self.is_drag_enabled():
-            x, y = pygame.mouse.get_pos()
-            if self._axis_direction:
-                self.draw_slider(y)
-                value = Utility.linear(
-                    self.check_borders(y),
-                    self.get_size()[1] + (self.get_puller_size()[1]),
-                    0,
-                    self._min_value,
-                    self._max_value
-                )
-            else:
-                self.draw_slider(x)
-                value = Utility.linear(
-                    self.check_borders(x),
-                    0,
-                    self.get_total_size()[0] - self.get_puller_size()[0],
-                    self._min_value,
-                    self._max_value
-                )
-            if self._params_function is not None:
-                self._exec_function(self._params_function, value)
-            else:
-                self._exec_function(value)
+        self._puller_position = value
 
     def on_mouse_release(self):
         ObjectWithStates.on_mouse_release(self)
@@ -1936,8 +1967,8 @@ class VerticalSlider(Slider):
         exec_function,
         params_function=None,
         get_function=None,
-        level_marker_width=5,
-        init_puller_position=1,
+        level_marker_width=3,
+        init_puller_position=1.0,
         min_value=0,
         max_value=1
     ):
@@ -2094,13 +2125,17 @@ class FormField:
 class Utility:
     @staticmethod
     def linear(value, min_in, max_in, min_out, max_out):
-        return (
-                       ((float(value) - float(min_in)) * (float(max_out) - float(min_out))
-                        ) / (float(max_in) - float(min_in))) + float(min_out)
+        print(value, min_in, max_in, min_out, max_out)
+        a = (float(max_out) - float(min_out)) / (float(max_in) - float(min_in))
+        b = float(max_out) - float(a) * float(max_in)
+        new_value = float(a) * float(value) + float(b)
+        return float(new_value)
 
     @staticmethod
     def format_time(seconds):
-        return str(datetime.timedelta(seconds=seconds))
+        import time
+        return time.strftime('%H:%M:%S', time.gmtime(seconds))
+
 
     @staticmethod
     def set_nested_value(dic, keys, value):
