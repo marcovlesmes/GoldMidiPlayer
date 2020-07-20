@@ -27,7 +27,8 @@ cx_Freeze.setup(
                 "goldmidi_x32/Scripts/bass_aac.dll",
                 "goldmidi_x32/Scripts/bassmidi.dll",
                 "sound_fonts/default.csf",
-                "midis/BackInBlack.mid"
+                "midis/BackInBlack.mid",
+                "fonts/conthrax-sb.ttf"
             ]
         }
     },
