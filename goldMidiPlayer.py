@@ -5,16 +5,28 @@ import sys
 # For Bass
 from Tkinter import Tk
 from tkFileDialog import askopenfilename
+from pybass import *
+from pybass.pybassmidi import *
+from pybass.pybassenc import *
+import tkMessageBox
+import re
+import os
+import time
+import json
+from encrypter import SoundCoder
 
 DEBUG = True
 MAIN_MODULE = "Main Module"
 MIXER_MODULE = "Mixer Module"
 PRESET_MODULE = "Preset Module"
-
+EVENT_COROUTINE = "Event Coroutine"
 
 class MidiPlayer:
     def __init__(self):
         pygame.init()
+        bass_init = BASS_Init(-1, 44100, 0, 0, None)
+        if not bass_init:
+            ErrorManager.raise_error(BASS_ErrorGetCode())
         self._clock = pygame.time.Clock()
         self._screen = Screen(size=(800, 150))
         self._eventManager = EventManager()
@@ -42,22 +54,40 @@ class EventManager:
                     system('cls')
                 if DEBUG and keys_map[pygame.K_r]:
                     pygame.display.update()
+            elif event.type == pygame.USEREVENT:
+                if event.custom_type == EVENT_COROUTINE:
+                    if event.condition["params"]:
+                        condition = event.condition["function"](event.condition["params"])
+                    else:
+                        condition = event.condition["function"]()
+                    if condition:
+                        if event.run["params"]:
+                            event.run["function"](event.run["params"])
+                        else:
+                            event.run["function"]()
+                        pygame.event.post(event)
 
 
-class FileManager:
-    def __init__(self):
-        pass
-
-    def add_file(self, midi):
-        pass
+class ErrorManager:
+    ERROR = {
+        8: "Error in the initialization. Code 8.",
+        41: "The file's format is not recognised/supported.",
+        48: "No MIDI file found to play.",
+        49: "No SoundFond file found to play."
+    }
+    @staticmethod
+    def raise_error(error_code):
+        if error_code in ErrorManager.ERROR:
+            tkMessageBox.showerror('Error', ErrorManager.ERROR[error_code])
+        else:
+            tkMessageBox.showerror("Error", 'Unknown Error. Code: ' + str(error_code))
 
 
 class Bass:
-    def __init__(self):
-        self._fileManager = FileManager()
 
     @staticmethod
-    def open_midi():
+    def open_midi(kwargs):
+        module = kwargs["module"]
         Tk().withdraw()
         new_midi_path = askopenfilename(
             initialdir="./",
@@ -65,9 +95,170 @@ class Bass:
             filetypes=(("MIDI files", "*.mid *.kar"), ("all files", "*.*"))
         )
         if new_midi_path:
-            pass
+            hstream = BASS_MIDI_StreamCreateFile(False, str(new_midi_path), 0, 0, 0, 44100)
 
-        print ('Open Midi')
+            if hstream:
+                current_hstream = module.get_hstream()
+                if current_hstream:
+                    BASS_ChannelStop(current_hstream)
+                module.set_hstream(hstream)
+                # TODO: Search for saved file
+                """ if dont have a file then """
+                # TODO: Get Info of raw file
+                # TODO: Get Info of file with BASS Lib
+                """ dummy info """
+                midi_name = str(re.search('.*[/](.*)[.]([a-zA-Z]{3,4}$)', new_midi_path).groups()[0])
+
+                # TODO: Set Main Module
+                module.set_property(["midi", "name"], midi_name)
+                module.set_property(["midi", "path"], new_midi_path)
+
+                midi_name_text = module.get_element_by_name("Midi Name Text")
+                midi_name_text.set_color((255, 255, 255))
+                midi_name_text.render(midi_name)
+
+                midi_name_text = module.get_element_by_name("Midi Time Text")
+                midi_name_text.set_color((255, 255, 255))
+                midi_name_text.render('00:00:00')
+
+                module.get_element_by_name("Save File Button").disabled(False)
+
+                if module.get_soundFont():
+                    module.get_element_by_name("Play Button").disabled(False)
+                    module.get_element_by_name("Convert MP3 Button").disabled(False)
+                # TODO: Set Mixer Module
+                # TODO: Set Playlist Module
+
+                return True
+            else:
+                ErrorManager.raise_error(BASS_ErrorGetCode())
+
+    @staticmethod
+    def open_soundFont(kwards):
+        module = kwards["module"]
+        Tk().withdraw()
+        new_sound_font = askopenfilename(
+            initialdir="./",
+            title="Select SoundFont file",
+            filetypes=(("SoundFond files", "*.csf *.sf2"), ("all files", "*.*"))
+        )
+        is_sound_font_coded = False
+
+        if new_sound_font:
+            """ Check if the file is suported and config the loading """
+            if new_sound_font.find('.csf', -4) > 5:
+                is_sound_font_coded = True
+
+                new_sound_font = SoundCoder().decrypt_sound_found_in_memory(new_sound_font)
+
+            sound_font = BASS_MIDI_FontInit(str(new_sound_font), 0)
+
+            if sound_font:
+                init_font = BASS_MIDI_FONT(sound_font, -1, 0)
+                set_soundFont = BASS_MIDI_StreamSetFonts(0, init_font, 1)
+                if set_soundFont:
+                    module.set_soundFont(init_font)
+                    if module.get_hstream():
+                        module.get_element_by_name("Play Button").disabled(False)
+                        module.get_element_by_name("Convert MP3 Button").disabled(False)
+                    return True
+                else:
+                    ErrorManager.raise_error(BASS_ErrorGetCode())
+            else:
+                ErrorManager.raise_error(BASS_ErrorGetCode())
+            """
+            if is_sound_font_coded and os.path.exists(new_sound_font):
+                os.remove(new_sound_font)
+            """
+
+    @staticmethod
+    def save_session(kwards):
+        main_module = kwards["main_module"]
+        mixer_module = kwards["mixer_module"]()
+
+        mixer_properties = mixer_module.get_properties() if mixer_module else None
+        main_properties = main_module.get_properties()
+        session = {
+            "main_module": main_properties,
+            "mixer_module": mixer_properties
+        }
+
+        with open(main_properties['midi']['path'] + '.json', 'w') as write_file:
+            write_file.write(json.dumps(session))
+
+        return True
+
+    @staticmethod
+    def play_midi(kwards):
+        module = kwards["module"]
+        hstream = module.get_hstream()
+        sound_font = module.get_soundFont()
+
+        if hstream is None:
+            ErrorManager.raise_error(48)
+        elif sound_font is None:
+            ErrorManager.raise_error(49)
+        else:
+            channel_state = BASS_ChannelIsActive(hstream)
+            if channel_state == BASS_ACTIVE_PLAYING or channel_state == BASS_ACTIVE_PAUSED:
+                return False
+            else:
+                play = BASS_ChannelPlay(hstream, False)
+                Bass.set_midi_time_coroutine(module)
+
+                if not play:
+                    ErrorManager.raise_error(BASS_ErrorGetCode())
+
+            return True
+
+    @staticmethod
+    def pause_midi(kwargs):
+        module=kwargs["module"]
+        hstream = module.get_hstream()
+
+        channel_state = BASS_ChannelIsActive(hstream)
+        if channel_state == BASS_ACTIVE_PLAYING:
+            pause = BASS_ChannelPause(hstream)
+        elif channel_state == BASS_ACTIVE_PAUSED:
+            pause = BASS_ChannelPlay(hstream, False)
+            Bass.set_midi_time_coroutine(module)
+
+        if pause:
+            return True
+
+    @staticmethod
+    def stop_midi(kwargs):
+        module = kwargs["module"]
+        hstream = module.get_hstream()
+
+        stop_channel = BASS_ChannelStop(hstream)
+        reset_position = BASS_ChannelSetPosition(hstream, 0, BASS_POS_BYTE)
+        if stop_channel and reset_position:
+            module.get_element_by_name("Play Button").set_idle_state()
+            module.get_element_by_name("Pause Button").set_idle_state()
+            midi_play_time_text = module.get_element_by_name("Midi Time Text")
+            midi_play_time_text.render('00:00:00')
+            return True
+        else:
+            ErrorManager.raise_error(BASS_ErrorGetCode())
+
+
+    @staticmethod
+    def convert_to_csf():
+        Tk().withdraw()
+        sound_font_path = askopenfilename(
+            initialdir="./",
+            title="Select SF2 file",
+            filetypes=(("SF2 files", "*.sf2"), ("all files", "*.*"))
+        )
+
+        if sound_font_path:
+            if sound_font_path.find('.sf2', -4) > 5:
+                result = SoundCoder().encrypt_sound_found(sound_font_path)
+                if result:
+                    tkMessageBox.showinfo('File Converted', 'File converted')
+                    return True
+
 
     @staticmethod
     def slider_exec():
@@ -92,6 +283,41 @@ class Bass:
     def get_array_of_items():
         return ["1 Acoustic Grand Piano", "2 Bright Acoustic Piano", "3 Electric Grand Piano", "4 Honky-tonk Piano", "5 Electric Piano 1"]
 
+    @staticmethod
+    def set_midi_time_coroutine(module):
+        pygame.event.post(
+            pygame.event.Event(
+                pygame.USEREVENT,
+                {
+                    "custom_type": EVENT_COROUTINE,
+                    "condition": {
+                        "function": Bass.is_playing,
+                        "params": {"module": module}
+                    },
+                    "run": {
+                        "function": Bass.refresh_play_time_text,
+                        "params": {"module": module}
+                    }
+                }
+            )
+        )
+
+    @staticmethod
+    def is_playing(kwargs):
+        module = kwargs["module"]
+        hstream = module.get_hstream()
+        return BASS_ChannelIsActive(hstream) == BASS_ACTIVE_PLAYING
+
+    @staticmethod
+    def refresh_play_time_text(kwargs):
+        module = kwargs["module"]
+        midi_play_time_text = module.get_element_by_name("Midi Time Text")
+        hstream = module.get_hstream()
+        hstream_position = BASS_ChannelGetPosition(hstream, BASS_POS_BYTE)
+        time_in_seconds = BASS_ChannelBytes2Seconds(hstream, hstream_position)
+        format_time = time.strftime('%H:%M:%S', time.gmtime(time_in_seconds))
+        midi_play_time_text.render(format_time)
+
 
 class VisualObject:
     def __init__(self, name, position, sprite=None, sprite_area=None):
@@ -105,6 +331,9 @@ class VisualObject:
             self._surface = pygame.image.load(sprite).convert()
         else:
             self._surface = sprite
+
+    def get_name(self):
+        return self._name
 
     def get_surface(self):
         return self._surface
@@ -129,9 +358,16 @@ class Module:
         self._index_priority = priority
         self._background_src = background_src
         self._render_elements = [VisualObject(self._name, (0, 0), self._background_src)]
+        self._properties = {}
 
     def get_name(self):
         return self._name
+
+    def get_element_by_name(self, name):
+        for element in self.get_objects_to_render():
+            if element.get_name() == name:
+                return element
+        return None
 
     def get_height(self):
         return self._height
@@ -142,8 +378,223 @@ class Module:
     def get_objects_to_render(self):
         return self._render_elements
 
+    def get_properties(self):
+        return self._properties
+
+    def set_property(self, keys, value):
+        dictionary = self._properties
+        for key in keys[:-1]:
+            dictionary = dictionary[key]
+        dictionary[keys[-1]] = value
+
     def add_objects_to_render(self, objects):
         self._render_elements += objects
+
+
+class MainModule(Module):
+    def __init__(self):
+        Module.__init__(self, MAIN_MODULE, 344, './main_screen.png', 1)
+        self._hstream = None
+        self._soundFont = None
+        self._properties = {
+            "midi": {
+                "name": None,
+                "path": None
+            },
+            "global_volume": 100,
+            "global_pitch": 0,
+            "global_tempo": 0
+        }
+
+    def get_hstream(self):
+        return self._hstream
+
+    def get_soundFont(self):
+        return self._soundFont
+
+    def add_file(self, midi):
+        print(str(midi))
+
+    def set_hstream(self, hstream):
+        self._hstream = hstream
+
+    def set_soundFont(self, soundFont):
+        self._soundFont =soundFont
+
+
+class MixerModule(Module):
+    def __init__(self):
+        Module.__init__(self, MIXER_MODULE, 344, './mixer_screen.png', 3)
+        self._properties = {
+            "channels": 16,
+            "channel_1": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_2": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_3": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_4": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_5": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_6": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_7": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_8": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_9": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_10": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_11": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_12": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_13": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_14": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_15": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            },
+            "channel_16": {
+                "solo": False,
+                "mute": False,
+                "volume": 100,
+                "chorus": 0,
+                "reverb": 0,
+                "pan": 0,
+                "soundFont": None,
+                "program": 0
+            }
+        }
+
+
+class PresetModule(Module):
+    def __init__(self):
+        Module.__init__(self, PRESET_MODULE, 150, './loading_screen.png', 4)
+        # TODO: Make a background image for loading
+        self.get_objects_to_render()[0].get_surface().fill((0, 0, 20))
 
 
 class Screen:
@@ -179,26 +630,29 @@ class Screen:
     def _set_module(self, module):
         if module == MAIN_MODULE:
             if self._main_module is None:
-                self._main_module = Module(MAIN_MODULE, 344, './main_screen.png', 1)
+                self._main_module = MainModule()
                 ElementManager.main_module_init(self._main_module, self)
             self._active_modules.append(self._main_module)
             return self._main_module
         elif module == MIXER_MODULE:
             if self._mixer_module is None:
                 self.loading_screen()
-                self._mixer_module = Module(MIXER_MODULE, 344, './mixer_screen.png', 3)
+                self._mixer_module = MixerModule()
                 ElementManager.mixer_module_init(self._mixer_module, self)
             self._active_modules.append(self._mixer_module)
             return self._mixer_module
         elif module == PRESET_MODULE:
             if self._preset_module is None:
-                self._preset_module = Module(PRESET_MODULE, 150, './loading_screen.png', 4)
+                self._preset_module = PresetModule()
                 ElementManager.preset_module_init(self._preset_module, self)
             self._active_modules.append(self._preset_module)
             return self._preset_module
 
     def _unset_module(self, module):
         self._active_modules.remove(module)
+
+    def get_mixer_module(self):
+        return self._mixer_module
 
     def set_screen(self):
         self._visible_elements = []
@@ -263,23 +717,27 @@ class ElementManager:
     def main_module_init(module, screen):
         open_midi_hover_state_surface = ImageButtonState('hover', './sprite.png', (0, 59, 54, 58))
         open_midi_button = Button('Open Midi Button', (143, 92, 54, 58), [open_midi_hover_state_surface],
-                                  Bass.button_exec)
+                                  Bass.open_midi, module=module)
         open_midi_button.set_hold_active(False)
         save_file_hover_state_surface = ImageButtonState('hover', './sprite.png', (58, 59, 54, 58))
-        save_file_button = Button('Save File Button', (199, 92, 54, 58), [save_file_hover_state_surface],
-                                  Bass.button_exec)
+        save_file_disabled_state_surface = ImageButtonState('disabled', './sprite.png', (58, 156, 54, 58))
+        save_file_button = Button('Save File Button', (199, 92, 54, 58), [save_file_hover_state_surface, save_file_disabled_state_surface],
+                                  Bass.save_session, main_module=module, mixer_module=screen.get_mixer_module)
+        save_file_button.disabled(True)
         save_file_button.set_hold_active(False)
         open_soundfont_hover_state_surface = ImageButtonState('hover', './sprite.png', (116, 59, 54, 58))
         open_soundfont_button = Button('Open SoundFont Button', (258, 92, 54, 58), [open_soundfont_hover_state_surface],
-                                       Bass.button_exec)
+                                       Bass.open_soundFont, module=module)
         open_soundfont_button.set_hold_active(False)
         save_gm_file_hover_state_surface = ImageButtonState('hover', './sprite.png', (176, 59, 54, 58))
         save_gm_file_button = Button('Convert to CSF Button', (316, 92, 54, 58), [save_gm_file_hover_state_surface],
-                                     Bass.button_exec)
+                                     Bass.convert_to_csf)
         save_gm_file_button.set_hold_active(False)
         export_mp3_hover_state_surface = ImageButtonState('hover', './sprite.png', (232, 59, 54, 58))
-        export_mp3_button = Button('Convert MP3 Button', (372, 92, 54, 58), [export_mp3_hover_state_surface],
+        export_mp3_disabled_state_surface = ImageButtonState('disabled', './sprite.png', (232, 156, 54, 58))
+        export_mp3_button = Button('Convert MP3 Button', (372, 92, 54, 58), [export_mp3_hover_state_surface, export_mp3_disabled_state_surface],
                                    Bass.button_exec)
+        export_mp3_button.disabled(True)
         export_mp3_button.set_hold_active(False)
         toggle_mixer_hover_state_surface = ImageButtonState('hover', './sprite.png', (289, 59, 54, 58))
         toggle_mixer_active_state_surface = ImageButtonState('active', './sprite.png', (289, 59, 54, 58))
@@ -308,16 +766,18 @@ class ElementManager:
                                   Bass.button_exec)
         next_midi_button.set_hold_active(False)
         stop_midi_hover_state_surface = ImageButtonState('hover', './sprite.png', (684, 47, 50, 54))
-        stop_midi_button = Button('Stop Button', (438, 264, 50, 54), [stop_midi_hover_state_surface], Bass.button_exec)
+        stop_midi_button = Button('Stop Button', (438, 264, 50, 54), [stop_midi_hover_state_surface], Bass.stop_midi, module=module)
         stop_midi_button.set_hold_active(False)
         play_midi_hover_state_surface = ImageButtonState('hover', './sprite.png', (738, 47, 50, 54))
         play_midi_active_state_surface = ImageButtonState('active', './sprite.png', (738, 102, 50, 54))
+        play_midi_disabled_state_surface = ImageButtonState('disabled', './sprite.png', (738, 156, 50, 54))
         play_midi_button = Button('Play Button', (493, 264, 50, 54),
-                                  [play_midi_hover_state_surface, play_midi_active_state_surface], Bass.button_exec)
+                                  [play_midi_hover_state_surface, play_midi_active_state_surface, play_midi_disabled_state_surface], Bass.play_midi, module=module)
+        play_midi_button.disabled(True)
         pause_midi_hover_state_surface = ImageButtonState('hover', './sprite.png', (790, 47, 50, 54))
         pause_midi_active_state_surface = ImageButtonState('active', './sprite.png', (790, 102, 50, 54))
         pause_midi_button = Button('Pause Button', (547, 264, 50, 54),
-                                   [pause_midi_hover_state_surface, pause_midi_active_state_surface], Bass.button_exec)
+                                   [pause_midi_hover_state_surface, pause_midi_active_state_surface], Bass.pause_midi, module=module)
 
         puller = Puller('./sprite.png', (913, 63, 29, 16))
         sliders_font = pygame.font.Font("./fonts/conthrax-sb.ttf", 16)
@@ -875,15 +1335,19 @@ class ActiveButton(State):
             button.set_surface_to_state("active")
         else:
             button.set_surface_to_state(None)
-        button.call_bind_function()
+        function = button.call_bind_function()
+        print("Return from function: ", function)
+        if not function:
+            button.set_state(button.STATES["idle"])
 
     @staticmethod
     def update(button):
         if not button.is_hold_active():
             button.set_state(button.STATES["idle"])
         elif button.is_mouse_over() and button.is_mouse_button_down():
-            button.set_state(button.STATES["idle"])
-            button.call_bind_function()
+            function = button.call_bind_function()
+            if function:
+                button.set_state(button.STATES["idle"])
             pygame.time.wait(State.WAIT_TIME)
 
 
@@ -941,9 +1405,11 @@ class Button:
 
     def call_bind_function(self):
         if not self._kwargs_function:
-            self._bounded_function()
+            successful = self._bounded_function()
         else:
-            self._bounded_function(self._kwargs_function)
+            successful = self._bounded_function(self._kwargs_function)
+
+        return successful
 
     def get_name(self):
         return self._name
@@ -959,6 +1425,10 @@ class Button:
 
     def set_state(self, state):
         self._state = state
+        self._state.on_enter_state(self)
+
+    def set_idle_state(self):
+        self._state = self.STATES["idle"]
         self._state.on_enter_state(self)
 
     def set_hold_active(self, active=True):
@@ -1129,6 +1599,37 @@ class Slider:
     def _has_text(self):
         return True if self._text is not None else False
 
+    def get_name(self):
+        return self._name
+
+    def get_surface(self):
+        return self._surface
+
+    def get_position(self):
+        return self._area[0] + self._offset_position[0], self._area[1] + self._offset_position[1]
+
+    def get_puller_position(self):
+        return self._puller_position
+
+    def get_size(self):
+        return self._area[2], self._area[3]
+
+    def get_level_bar_height(self):
+        return self.get_size()[1] - self._puller.get_size()[1]
+
+    def get_state(self):
+        return self._state
+
+    def set_offset_height(self, offset):
+        self._offset_position = (self._offset_position[0], offset)
+
+    def set_puller_position(self, position):
+        self._puller_position = position
+
+    def set_state(self, state):
+        self._state = state
+        self._state.on_enter_state(self)
+
     def call_binded_function(self):
         if not self._kwargs_function:
             self._bounded_function()
@@ -1158,34 +1659,6 @@ class Slider:
         self._puller_position = puller_position
         if self._has_text():
             self._text.render(str(int(self._linear(puller_position_inverted, 0, level_bar_height, self._range[0], self._range[1]))))
-
-    def get_surface(self):
-        return self._surface
-
-    def get_position(self):
-        return self._area[0] + self._offset_position[0], self._area[1] + self._offset_position[1]
-
-    def get_puller_position(self):
-        return self._puller_position
-
-    def get_size(self):
-        return self._area[2], self._area[3]
-
-    def get_level_bar_height(self):
-        return self.get_size()[1] - self._puller.get_size()[1]
-
-    def get_state(self):
-        return self._state
-
-    def set_offset_height(self, offset):
-        self._offset_position = (self._offset_position[0], offset)
-
-    def set_puller_position(self, position):
-        self._puller_position = position
-
-    def set_state(self, state):
-        self._state = state
-        self._state.on_enter_state(self)
 
     def disabled(self, disabled):
         if disabled:
@@ -1229,6 +1702,9 @@ class Text:
         self._surface = None
         self._color = color
         self.render(content)
+
+    def get_name(self):
+        return self._name
 
     def get_surface(self):
         return self._surface
