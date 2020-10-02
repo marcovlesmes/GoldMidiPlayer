@@ -60,6 +60,7 @@ PIANO_ROLL_SCREEN = 51
 MIXER_SCREEN = 52
 SETTINGS_SCREEN = 53
 PLAYLIST_SCREEN = 54
+PROGRAM_SCREEN = 55
 
 MIX_ATTR_INDEX = 'index'
 MIX_ATTR_BANK = 'bank'
@@ -119,6 +120,7 @@ class App:
                     if pygame.mouse.get_focused():
                         on_element = self.get_interaction()
                         if on_element and on_element.is_drag_enabled():
+                            print("Dragging on element: ", on_element)
                             self._events_buffer.append([EVENT_ON_MOUSE_DRAG, on_element])
                         elif on_element:
                             active_element = self.get_active_element()
@@ -167,6 +169,10 @@ class App:
 
     def update_screen(self):
         self._render_screen = self._interface.render()
+        print("========================= UPDATE SCREEN =======================")
+        for e in self._render_screen:
+            print(e.get_name())
+        print("===================================================================")
         self.get_targets_areas()
         self._window_size = self._interface.window_size
         self._screen = pygame.display.set_mode(self._window_size)
@@ -240,6 +246,7 @@ class App:
         for element in self._render_screen:
             self._screen.blit(element.get_surface(), element.get_position())
         pygame.display.update()
+        # pygame.display.flip()
 
 
 class MidiPlayer:
@@ -261,6 +268,7 @@ class MidiPlayer:
             self._main_screen = None
             self._playlist_screen = None
             self._mixer_screen = None
+            self._program_screen = None
             self._piano_roll_screen = None
             self._settings_screen = None
             self._render_elements = []
@@ -292,6 +300,12 @@ class MidiPlayer:
             self._mixer_screen.set_get_elements_function(self.draw_mixer_screen)
         return self._mixer_screen
 
+    def get_program_screen(self):
+        if self._program_screen is None:
+            self._program_screen = ProgramScreen.get_instance()
+            self._program_screen.set_get_elements_function(self.draw_program_screen)
+        return self._program_screen
+
     def get_piano_roll_screen(self):
         if self._piano_roll_screen is None:
             self._piano_roll_screen = PianoRollScreen.get_instance()
@@ -307,8 +321,15 @@ class MidiPlayer:
     def get_bank_text(self, channel):
         return str(self.playlist.get_mixer_value(channel, MIX_ATTR_BANK))
 
-    def get_program_text(self, channel):
-        return str(self.playlist.get_mixer_value(channel, MIX_ATTR_PROGRAM))
+    def get_program_text(self, params):
+        channel, limit = params
+        position = str(self.playlist.get_mixer_value(channel, MIX_ATTR_PROGRAM))
+        programs = self.get_dict_programs()
+        if programs.get(position):
+            program = programs.get(position)[:limit]
+        else:
+            program = 'N/A'
+        return program
 
     def get_float_current_global_volume(self):
         return self.playlist.get_global_volume()
@@ -472,6 +493,8 @@ class MidiPlayer:
 
     def change_program(self, channel):
         print("Change program channel ", channel)
+        self.toggle_screen(MIXER_SCREEN)
+        self.toggle_screen(PROGRAM_SCREEN)
 
     def toggle_screen(self, screen):
         pygame.event.post(
@@ -489,6 +512,11 @@ class MidiPlayer:
             return True
 
     def render(self):
+        """
+        Get all the elements to render
+        :return:
+        """
+        print(self._active_screens)
         self._render_elements = []
         if SETTINGS_SCREEN in self._active_screens:
             # TODO: self._render_elements = self.get_settings_screen().get_screen_elements()
@@ -505,9 +533,14 @@ class MidiPlayer:
                 playlist_screen = self.get_playlist_screen()
                 self._render_elements += playlist_screen.get_screen_elements(screen_height)
                 screen_height += playlist_screen.get_size_y()
-            if MIXER_SCREEN in self._active_screens:
+            if PROGRAM_SCREEN in self._active_screens:
+                program_screen = self.get_program_screen()
+                self._render_elements += program_screen.get_screen_elements(screen_height)
+                screen_height += program_screen.get_size_y()
+            elif MIXER_SCREEN in self._active_screens:
                 mixer_screen = self.get_mixer_screen()
-                self._render_elements += mixer_screen.get_screen_elements(screen_height)
+                mixer_screen.set_elements()
+                self._render_elements += mixer_screen.get_screen_elements(screen_height, init=True)
                 screen_height += mixer_screen.get_size_y()
             if PIANO_ROLL_SCREEN in self._active_screens:
                 piano_roll_screen = self.get_piano_roll_screen()
@@ -572,11 +605,6 @@ class MidiPlayer:
                 content='Help Text',
                 position=WINDOW_MAIN_HELP_TEXT_POSITION,
                 update_function=self.get_hover_element_help_text
-            ),
-            Text(
-                content='Debug',
-                position=(0,0),
-                update_function=self.debug_text
             ),
             VerticalSlider(
                 puller_image_name='volume',
@@ -727,20 +755,30 @@ class MidiPlayer:
         ]
 
     # TODO: Delete function
-    def debug_text(self):
+    def get_dict_programs(self):
         if self.playlist.get_soundfont():
             data = BASS_MIDI_FONTINFO()
             BASS_MIDI_FontGetInfo(self.playlist.get_soundfont()[-1], data)
             index_preset = 0
             index_bank = 0
             preset = ''
+            programs = {}
             while preset is not None:
                 preset = BASS_MIDI_FontGetPreset(self.playlist.get_soundfont()[-1], index_preset, index_bank)
                 if preset:
-                    print(str(index_preset) + ': ' + preset)
+                    programs.update({str(index_preset): preset})
                 index_preset += 1
-            return 'data'
-        return 'Test'
+            return programs
+        else:
+            import xml.etree.ElementTree as et
+            file = et.parse('./general_midi.xml')
+            root = file.getroot()
+            programs = {}
+            for program in root:
+                programs.update({program[0].text: program[1].text})
+            return programs
+
+        return {}
 
     def draw_settings_screen(self):
         return [
@@ -776,6 +814,9 @@ class MidiPlayer:
         mute_buttons_x_coord = 14
         sliders_x_coord = 15
         rev_chorus_pan_buttons_x_coord = 13
+        channels_count = self.playlist.get_mixer_channels_count()
+        # TODO: Draw ON/OFF elements OR draw OFF and switch
+
         elements = [
             Image(
                 name='mixer_screen',
@@ -783,13 +824,13 @@ class MidiPlayer:
                 size=(WINDOW_INIT_X, WINDOW_MIXER_Y)
             )
         ]
-        while i < self.playlist.get_mixer_channels_count():
+        while i < channels_count:
             elements.append(
                 Text(
                     content='PROGRAM',
                     position=(program_x_coord, 317),
                     update_function=self.get_program_text,
-                    params_function=i
+                    params_function=[i, 4]
                 )
             )
             elements.append(
@@ -889,6 +930,16 @@ class MidiPlayer:
             sliders_x_coord += x_dist
             rev_chorus_pan_buttons_x_coord += x_dist
         return elements
+
+    def draw_program_screen(self):
+        return [
+            Text(
+                content='Program Screen',
+                position=(10, 10),
+                update_function=self.get_program_text,
+                params_function=[0, 20]
+            )
+        ]
 
     def draw_piano_roll_screen(self):
         return [
@@ -994,8 +1045,6 @@ class MidiPlayer:
     def open_new_midi(self):
         # TODO: if file was saved ask for open it
         saved_file = self.playlist.open_new_midi()
-        if self._mixer_screen is not None:
-            self._mixer_screen.refresh_elements()
         pygame.event.post(
             pygame.event.Event(
                 pygame.USEREVENT,
@@ -1072,7 +1121,7 @@ class MidiPlayer:
                     }
                 )
             )
-            print(saved_file)
+            # print(saved_file)
         pygame.event.post(
             pygame.event.Event(
                 pygame.USEREVENT,
@@ -1122,33 +1171,34 @@ class Screen:
         self._elements_init_pos_y = []
         self._size_y = size_y
 
-    def _init_elements(self):
-        print(self)
+    def _init_elements(self, origin_y):
         self._elements = self._get_elements_function()
+        self._elements_init_pos_y = []
         if self._elements:
-            self.set_init_elements_position()
+            for element in self._elements:
+                self._elements_init_pos_y.append(element.get_position()[1])
+
+            if origin_y is not 0:
+                i = 0
+                for element in self._elements:
+                    element_x, element_y = element.get_position()
+                    element.set_position((element_x, self._elements_init_pos_y[i] + origin_y))
+                    i += 1
         else:
             print('Screen() > get_screen_elements(): Dont have screen elements')
 
-    def get_screen_elements(self, origin_y=0):
-        if self._elements is None:
-            self._init_elements()
-
-        if origin_y is not 0:
-            i = 0
-            for element in self._elements:
-                element_x, element_y = element.get_position()
-                element.set_position((element_x, self._elements_init_pos_y[i] + origin_y))
-                i += 1
+    def get_screen_elements(self, origin_y=0, init=False):
+        init = False
+        if self._elements is None or init:
+            self._init_elements(origin_y)
+        print("============= Function Elements ==========")
+        for e in self._elements:
+            print(e.get_name())
+        print("=========================================")
         return self._elements
 
     def get_size_y(self):
         return self._size_y
-
-    def set_init_elements_position(self):
-        for element in self._elements:
-            self._elements_init_pos_y.append(element.get_position()[1])
-        print(self._elements_init_pos_y)
 
     def set_get_elements_function(self, function):
         if self._get_elements_function is None:
@@ -1205,9 +1255,10 @@ class MixerScreen(Screen):
             MixerScreen._instance = self
         Screen.__init__(self, WINDOW_MIXER_Y)
 
-    def refresh_elements(self):
-        self._elements_init_pos_y = []
-        self._init_elements()
+    def set_elements(self):
+        if self._elements is not None:
+            # print (self._elements, "\n")
+            return 0
 
 
 class ProgramScreen(Screen):
@@ -1225,10 +1276,6 @@ class ProgramScreen(Screen):
         else:
             ProgramScreen._instance = self
         Screen.__init__(self, WINDOW_MIXER_Y)
-
-    def refresh_elements(self):
-        self._elements_init_pos_y = []
-        self._init_elements()
 
 
 class PianoRollScreen(Screen):

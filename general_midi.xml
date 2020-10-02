@@ -1,0 +1,515 @@
+<?xml version="1.0"?>
+<GENERAL-MIDI>
+    <PROGRAM>
+        <POSITION>1</POSITION>
+        <INSTRUMENT>Acoustic Grand Piano</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>2</POSITION>
+        <INSTRUMENT>Bright Acoustic Piano</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>3</POSITION>
+        <INSTRUMENT>Electric Grand Piano</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>4</POSITION>
+        <INSTRUMENT>Honky-tonk Piano</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>5</POSITION>
+        <INSTRUMENT>Electric Piano 1</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>6</POSITION>
+        <INSTRUMENT>Electric Piano 2</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>7</POSITION>
+        <INSTRUMENT>Harpsichord</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>8</POSITION>
+        <INSTRUMENT>Clavi</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>9</POSITION>
+        <INSTRUMENT>Celesta</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>10</POSITION>
+        <INSTRUMENT>Glockenspiel</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>11</POSITION>
+        <INSTRUMENT>Music Box</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>12</POSITION>
+        <INSTRUMENT>Vibraphone</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>13</POSITION>
+        <INSTRUMENT>Marimba</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>14</POSITION>
+        <INSTRUMENT>Xylophone</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>15</POSITION>
+        <INSTRUMENT>Tubular Bells</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>16</POSITION>
+        <INSTRUMENT>Dulcimer</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>17</POSITION>
+        <INSTRUMENT>Drawbar Organ</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>18</POSITION>
+        <INSTRUMENT>Percussive Organ</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>19</POSITION>
+        <INSTRUMENT>Rock Organ</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>20</POSITION>
+        <INSTRUMENT>Church Organ</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>21</POSITION>
+        <INSTRUMENT>Reed Organ</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>22</POSITION>
+        <INSTRUMENT>Accordion</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>23</POSITION>
+        <INSTRUMENT>Harmonica</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>24</POSITION>
+        <INSTRUMENT>Tango Accordion</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>25</POSITION>
+        <INSTRUMENT>Acoustic Guitar (nylon)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>26</POSITION>
+        <INSTRUMENT>Acoustic Guitar (steel)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>27</POSITION>
+        <INSTRUMENT>Electric Guitar (jazz)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>28</POSITION>
+        <INSTRUMENT>Electric Guitar (clean)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>29</POSITION>
+        <INSTRUMENT>Electric Guitar (muted)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>30</POSITION>
+        <INSTRUMENT>Overdriven Guitar</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>31</POSITION>
+        <INSTRUMENT>Distortion Guitar</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>32</POSITION>
+        <INSTRUMENT>Guitar Harmonics</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>33</POSITION>
+        <INSTRUMENT>Acoustic Bass</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>34</POSITION>
+        <INSTRUMENT>Electric Bass (finger)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>35</POSITION>
+        <INSTRUMENT>Electric Bass (pick)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>36</POSITION>
+        <INSTRUMENT>Fretless Bass</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>37</POSITION>
+        <INSTRUMENT>Slap Bass 1</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>38</POSITION>
+        <INSTRUMENT>Slap Bass 2</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>39</POSITION>
+        <INSTRUMENT>Synth Bass 1</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>40</POSITION>
+        <INSTRUMENT>Synth Bass 2</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>41</POSITION>
+        <INSTRUMENT>Violin</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>42</POSITION>
+        <INSTRUMENT>Viola</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>43</POSITION>
+        <INSTRUMENT>Cello</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>44</POSITION>
+        <INSTRUMENT>Contrabass</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>45</POSITION>
+        <INSTRUMENT>Tremolo Strings</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>46</POSITION>
+        <INSTRUMENT>Pizzicato Strings</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>47</POSITION>
+        <INSTRUMENT>Orchestral Harp</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>48</POSITION>
+        <INSTRUMENT>Timpani</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>49</POSITION>
+        <INSTRUMENT>String Ensemble 1</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>50</POSITION>
+        <INSTRUMENT>String Ensemble 2</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>51</POSITION>
+        <INSTRUMENT>Synth Strings 1</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>52</POSITION>
+        <INSTRUMENT>Synth Strings 2</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>53</POSITION>
+        <INSTRUMENT>Choir Aahs</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>54</POSITION>
+        <INSTRUMENT>Voice Oohs</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>55</POSITION>
+        <INSTRUMENT>Synth Voice</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>56</POSITION>
+        <INSTRUMENT>Orchestra Hit</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>57</POSITION>
+        <INSTRUMENT>Trumpet</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>58</POSITION>
+        <INSTRUMENT>Trombone</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>59</POSITION>
+        <INSTRUMENT>Tuba</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>60</POSITION>
+        <INSTRUMENT>Muted Trumpet</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>61</POSITION>
+        <INSTRUMENT>French Horn</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>62</POSITION>
+        <INSTRUMENT>Brass Section</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>63</POSITION>
+        <INSTRUMENT>Synth Brass 1</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>64</POSITION>
+        <INSTRUMENT>Synth Brass 2</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>65</POSITION>
+        <INSTRUMENT>Soprano Sax</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>66</POSITION>
+        <INSTRUMENT>Alto Sax</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>67</POSITION>
+        <INSTRUMENT>Tenor Sax</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>68</POSITION>
+        <INSTRUMENT>Baritone Sax</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>69</POSITION>
+        <INSTRUMENT>Oboe</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>70</POSITION>
+        <INSTRUMENT>English Horn</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>71</POSITION>
+        <INSTRUMENT>Bassoon</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>72</POSITION>
+        <INSTRUMENT>Clarinet</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>73</POSITION>
+        <INSTRUMENT>Piccolo</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>74</POSITION>
+        <INSTRUMENT>Flute</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>75</POSITION>
+        <INSTRUMENT>Recorder</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>76</POSITION>
+        <INSTRUMENT>Pan Flute</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>77</POSITION>
+        <INSTRUMENT>Blown bottle</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>78</POSITION>
+        <INSTRUMENT>Shakuhachi</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>79</POSITION>
+        <INSTRUMENT>Whistle</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>80</POSITION>
+        <INSTRUMENT>Ocarina</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>81</POSITION>
+        <INSTRUMENT>Lead 1 (square)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>82</POSITION>
+        <INSTRUMENT>Lead 2 (sawtooth)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>83</POSITION>
+        <INSTRUMENT>Lead 3 (calliope)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>84</POSITION>
+        <INSTRUMENT>Lead 4 (chiff)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>85</POSITION>
+        <INSTRUMENT>Lead 5 (charang)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>86</POSITION>
+        <INSTRUMENT>Lead 6 (voice)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>87</POSITION>
+        <INSTRUMENT>Lead 7 (fifths)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>88</POSITION>
+        <INSTRUMENT>Lead 8 (bass + lead)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>89</POSITION>
+        <INSTRUMENT>Pad 1 (new age)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>90</POSITION>
+        <INSTRUMENT>Pad 2 (warm)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>91</POSITION>
+        <INSTRUMENT>Pad 3 (polysynth)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>92</POSITION>
+        <INSTRUMENT>Pad 4 (choir)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>93</POSITION>
+        <INSTRUMENT>Pad 5 (bowed)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>94</POSITION>
+        <INSTRUMENT>Pad 6 (metallic)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>95</POSITION>
+        <INSTRUMENT>Pad 7 (halo)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>96</POSITION>
+        <INSTRUMENT>Pad 8 (sweep)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>97</POSITION>
+        <INSTRUMENT>FX 1 (rain)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>98</POSITION>
+        <INSTRUMENT>FX 2 (soundtrack)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>99</POSITION>
+        <INSTRUMENT>FX 3 (crystal)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>100</POSITION>
+        <INSTRUMENT>FX 4 (atmosphere)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>101</POSITION>
+        <INSTRUMENT>FX 5 (brightness)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>102</POSITION>
+        <INSTRUMENT>FX 6 (goblins)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>103</POSITION>
+        <INSTRUMENT>FX 7 (echoes)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>104</POSITION>
+        <INSTRUMENT>FX 8 (sci-fi)</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>105</POSITION>
+        <INSTRUMENT>Sitar</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>106</POSITION>
+        <INSTRUMENT>Banjo</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>107</POSITION>
+        <INSTRUMENT>Shamisen</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>108</POSITION>
+        <INSTRUMENT>Koto</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>109</POSITION>
+        <INSTRUMENT>Kalimba</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>110</POSITION>
+        <INSTRUMENT>Bag pipe</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>111</POSITION>
+        <INSTRUMENT>Fiddle</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>112</POSITION>
+        <INSTRUMENT>Shanai</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>113</POSITION>
+        <INSTRUMENT>Tinkle Bell</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>114</POSITION>
+        <INSTRUMENT>Agogo</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>115</POSITION>
+        <INSTRUMENT>Steel Drums</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>116</POSITION>
+        <INSTRUMENT>Woodblock</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>117</POSITION>
+        <INSTRUMENT>Taiko Drum</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>118</POSITION>
+        <INSTRUMENT>Melodic Tom</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>119</POSITION>
+        <INSTRUMENT>Synth Drum</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>120</POSITION>
+        <INSTRUMENT>Reverse Cymbal</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>121</POSITION>
+        <INSTRUMENT>Guitar Fret Noise</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>122</POSITION>
+        <INSTRUMENT>Breath Noise</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>123</POSITION>
+        <INSTRUMENT>Seashore</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>124</POSITION>
+        <INSTRUMENT>Bird Tweet</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>125</POSITION>
+        <INSTRUMENT>Telephone Ring</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>126</POSITION>
+        <INSTRUMENT>Helicopter</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>127</POSITION>
+        <INSTRUMENT>Applause</INSTRUMENT>
+    </PROGRAM>
+    <PROGRAM>
+        <POSITION>128</POSITION>
+        <INSTRUMENT>Gunshot</INSTRUMENT>
+    </PROGRAM>
+</GENERAL-MIDI>

@@ -4,7 +4,7 @@ import pygame
 import sys
 # For Bass
 from Tkinter import Tk
-from tkFileDialog import askopenfilename
+from tkFileDialog import askopenfilename, asksaveasfile
 from pybass import *
 from pybass.pybassmidi import *
 from pybass.pybassenc import *
@@ -13,13 +13,17 @@ import re
 import os
 import time
 import json
+import xml.etree.ElementTree as ET
+import webbrowser
 from encrypter import SoundCoder
 
 DEBUG = True
+DEBUG_COLOR = (50, 180, 200, 70)
 MAIN_MODULE = "Main Module"
 MIXER_MODULE = "Mixer Module"
 PRESET_MODULE = "Preset Module"
 EVENT_COROUTINE = "Event Coroutine"
+
 
 class MidiPlayer:
     def __init__(self):
@@ -32,9 +36,10 @@ class MidiPlayer:
         self._eventManager = EventManager()
 
     def update(self):
-        self._clock.tick(40)
-        self._eventManager.update()
-        self._screen.render()
+        if pygame.display.get_active():
+            self._clock.tick(40)
+            self._eventManager.update()
+            self._screen.render()
 
 
 class EventManager:
@@ -87,7 +92,8 @@ class Bass:
 
     @staticmethod
     def open_midi(kwargs):
-        module = kwargs["module"]
+        main_module = kwargs["main_module"]
+        mixer_module = kwargs["mixer_module"]()
         Tk().withdraw()
         new_midi_path = askopenfilename(
             initialdir="./",
@@ -98,35 +104,61 @@ class Bass:
             hstream = BASS_MIDI_StreamCreateFile(False, str(new_midi_path), 0, 0, 0, 44100)
 
             if hstream:
-                current_hstream = module.get_hstream()
+                current_hstream = main_module.get_hstream()
                 if current_hstream:
                     BASS_ChannelStop(current_hstream)
-                module.set_hstream(hstream)
-                # TODO: Search for saved file
-                """ if dont have a file then """
-                # TODO: Get Info of raw file
-                # TODO: Get Info of file with BASS Lib
-                """ dummy info """
+                main_module.set_file_path(str(new_midi_path))
+                main_module.set_hstream(hstream)
+
                 midi_name = str(re.search('.*[/](.*)[.]([a-zA-Z]{3,4}$)', new_midi_path).groups()[0])
-
-                # TODO: Set Main Module
-                module.set_property(["midi", "name"], midi_name)
-                module.set_property(["midi", "path"], new_midi_path)
-
-                midi_name_text = module.get_element_by_name("Midi Name Text")
+                # TODO: Set Main Module. This code has to be in another function
+                # MIDI NAME
+                midi_name_text = main_module.get_element_by_name("Midi Name Text")
                 midi_name_text.set_color((255, 255, 255))
                 midi_name_text.render(midi_name)
-
-                midi_name_text = module.get_element_by_name("Midi Time Text")
+                # MIDI TIME
+                midi_name_text = main_module.get_element_by_name("Midi Time Text")
                 midi_name_text.set_color((255, 255, 255))
                 midi_name_text.render('00:00:00')
+                # MIDI VOLUME
+                global_volume = BASS_MIDI_StreamGetEvent(hstream, -1, MIDI_EVENT_MASTERVOL)
+                slider_global_volume = main_module.get_element_by_name("Global Volume Slider")
+                slider_global_volume.draw(slider_global_volume.raw_to_puller_value(global_volume, 0, 16383))
+                # MIDI TEMPO TODO: Fix the value in the function slider_tempo.raw_to_puller_value(tempo_in_bpm)
+                slider_tempo = main_module.get_element_by_name("Global Tempo Slider")
+                tempo_in_microseconds = BASS_MIDI_StreamGetEvent(hstream, -1, MIDI_EVENT_TEMPO)
+                tempo_in_bpm = 60000000 / tempo_in_microseconds
+                print(tempo_in_bpm)
+                slider_tempo.draw(slider_tempo.raw_to_puller_value(tempo_in_bpm))
+                # UPDATE MAIN MODULE
+                main_module.get_element_by_name("Save File Button").disabled(False)
 
-                module.get_element_by_name("Save File Button").disabled(False)
+                if main_module.get_soundFont():
+                    main_module.get_element_by_name("Play Button").disabled(False)
+                    main_module.get_element_by_name("Convert MP3 Button").disabled(False)
+                # TODO: Set Mixer Module. When the mixer don't exist what have to do it?
 
-                if module.get_soundFont():
-                    module.get_element_by_name("Play Button").disabled(False)
-                    module.get_element_by_name("Convert MP3 Button").disabled(False)
-                # TODO: Set Mixer Module
+                if mixer_module:
+                    for i in range(0, 16):
+                        # CHANNELS VOLUME
+                        volume = BASS_MIDI_StreamGetEvent(hstream, i, MIDI_EVENT_VOLUME)
+                        channel_volume_slider = mixer_module.get_element_by_name("Volume Track " + str(i + 1) + " Slider")
+                        channel_volume_slider.draw(channel_volume_slider.raw_to_puller_value(volume))
+                        # CHANNELS REVERB
+                        reverb = BASS_MIDI_StreamGetEvent(hstream, i, MIDI_EVENT_REVERB)
+                        channel_reverb_knob = mixer_module.get_element_by_name(
+                            "Reverb Track " + str(i + 1) + " Knob")
+                        channel_reverb_knob.draw(channel_reverb_knob.raw_to_knob_value(reverb))
+                        # CHANNELS CHORUS
+                        chorus = BASS_MIDI_StreamGetEvent(hstream, i, MIDI_EVENT_CHORUS)
+                        channel_chorus_knob = mixer_module.get_element_by_name(
+                            "Chorus Track " + str(i + 1) + " Knob")
+                        channel_chorus_knob.draw(channel_chorus_knob.raw_to_knob_value(chorus))
+                        # CHANNELS PAN
+                        pan = BASS_MIDI_StreamGetEvent(hstream, i, MIDI_EVENT_PAN)
+                        channel_pan_knob = mixer_module.get_element_by_name(
+                            "Pan Track " + str(i + 1) + " Knob")
+                        channel_pan_knob.draw(channel_pan_knob.raw_to_knob_value(pan))
                 # TODO: Set Playlist Module
 
                 return True
@@ -172,19 +204,48 @@ class Bass:
             """
 
     @staticmethod
-    def save_session(kwards):
+    def save_file(kwards):
         main_module = kwards["main_module"]
         mixer_module = kwards["mixer_module"]()
 
-        mixer_properties = mixer_module.get_properties() if mixer_module else None
-        main_properties = main_module.get_properties()
-        session = {
-            "main_module": main_properties,
-            "mixer_module": mixer_properties
-        }
+        # TODO: Ask for where to save new file
+        Tk().withdraw()
+        new_midi_path = asksaveasfile(
+            initialdir="./",
+            title="Save New Midi As",
+            filetypes=[("MIDI File", "*.mid")]
+        )
 
-        with open(main_properties['midi']['path'] + '.json', 'w') as write_file:
-            write_file.write(json.dumps(session))
+        if new_midi_path:
+            # Read binary file and get string
+            file_path = main_module.get_file_path()
+            with open(file_path, 'rb') as original_file:
+                str_original_file = original_file.read().encode('hex')
+            str_tracks = str_original_file.split('4d54726b')
+            # TODO: Read player and get values for new MIDI
+            print (str_tracks)
+
+            new_file_values = {}
+
+            for index in range(0, 16):
+                options = {
+                    "volume": BASS_MIDI_StreamGetEvent(main_module.get_hstream(), index, MIDI_EVENT_VOLUME),
+                    "reverb": BASS_MIDI_StreamGetEvent(main_module.get_hstream(), index, MIDI_EVENT_REVERB),
+                    "pan": BASS_MIDI_StreamGetEvent(main_module.get_hstream(), index, MIDI_EVENT_PAN),
+                    "chorus": BASS_MIDI_StreamGetEvent(main_module.get_hstream(), index, MIDI_EVENT_CHORUS)
+                }
+                new_file_values.update([("channel_" + str(index), options)])
+            options = {
+                    "volume": BASS_MIDI_StreamGetEvent(main_module.get_hstream(), 0, MIDI_EVENT_MASTERVOL),
+                    "pitch": BASS_MIDI_StreamGetEvent(main_module.get_hstream(), 0, MIDI_EVENT_TRANSPOSE),
+                    "tempo": BASS_MIDI_StreamGetEvent(main_module.get_hstream(), 0, MIDI_EVENT_TEMPO),
+                }
+            new_file_values.update([("global", options)])
+
+            print (new_file_values)
+            # TODO: Write values of actual MIDI
+
+            print("Saved file as: ", new_midi_path)
 
         return True
 
@@ -216,32 +277,35 @@ class Bass:
         module=kwargs["module"]
         hstream = module.get_hstream()
 
-        channel_state = BASS_ChannelIsActive(hstream)
-        if channel_state == BASS_ACTIVE_PLAYING:
-            pause = BASS_ChannelPause(hstream)
-        elif channel_state == BASS_ACTIVE_PAUSED:
-            pause = BASS_ChannelPlay(hstream, False)
-            Bass.set_midi_time_coroutine(module)
+        if hstream:
+            channel_state = BASS_ChannelIsActive(hstream)
+            if channel_state == BASS_ACTIVE_PLAYING:
+                pause = BASS_ChannelPause(hstream)
+            elif channel_state == BASS_ACTIVE_PAUSED:
+                pause = BASS_ChannelPlay(hstream, False)
+                Bass.set_midi_time_coroutine(module)
+            else:
+                pause = False
 
-        if pause:
-            return True
+            if pause:
+                return True
 
     @staticmethod
     def stop_midi(kwargs):
         module = kwargs["module"]
         hstream = module.get_hstream()
 
-        stop_channel = BASS_ChannelStop(hstream)
-        reset_position = BASS_ChannelSetPosition(hstream, 0, BASS_POS_BYTE)
-        if stop_channel and reset_position:
-            module.get_element_by_name("Play Button").set_idle_state()
-            module.get_element_by_name("Pause Button").set_idle_state()
-            midi_play_time_text = module.get_element_by_name("Midi Time Text")
-            midi_play_time_text.render('00:00:00')
-            return True
-        else:
-            ErrorManager.raise_error(BASS_ErrorGetCode())
-
+        if hstream:
+            stop_channel = BASS_ChannelStop(hstream)
+            reset_position = BASS_ChannelSetPosition(hstream, 0, BASS_POS_BYTE)
+            if stop_channel and reset_position:
+                module.get_element_by_name("Play Button").set_idle_state()
+                module.get_element_by_name("Pause Button").set_idle_state()
+                midi_play_time_text = module.get_element_by_name("Midi Time Text")
+                midi_play_time_text.render('00:00:00')
+                return True
+            else:
+                ErrorManager.raise_error(BASS_ErrorGetCode())
 
     @staticmethod
     def convert_to_csf():
@@ -259,6 +323,9 @@ class Bass:
                     tkMessageBox.showinfo('File Converted', 'File converted')
                     return True
 
+    @staticmethod
+    def open_goldmidi_web():
+        webbrowser.open('https://www.goldmidisf2.com/', 2, True)
 
     @staticmethod
     def slider_exec():
@@ -274,14 +341,75 @@ class Bass:
 
     @staticmethod
     def mute_track(kwargs):
-        if kwargs["slider"].get_state() == kwargs["slider"].STATES["disabled"]:
-            kwargs["slider"].disabled(False)
+        main_module = kwargs["main_module"]()
+        channel = kwargs["channel"]
+        hstream = main_module.get_hstream()
+        if hstream:
+            if kwargs["slider"].get_state() == kwargs["slider"].STATES["disabled"]:
+                BASS_MIDI_StreamEvent(hstream, channel, MIDI_EVENT_VOLUME, 127)
+                kwargs["slider"].disabled(False)
+            else:
+                BASS_MIDI_StreamEvent(hstream, channel, MIDI_EVENT_VOLUME, 0)
+                # TODO: Can apply an filter to VOLUME Events with BASS_MIDI_StreamSetFilter
+                kwargs["slider"].disabled(True)
+            return True
         else:
-            kwargs["slider"].disabled(True)
+            return False
 
     @staticmethod
-    def get_array_of_items():
-        return ["1 Acoustic Grand Piano", "2 Bright Acoustic Piano", "3 Electric Grand Piano", "4 Honky-tonk Piano", "5 Electric Piano 1"]
+    def solo_track(kwargs):
+        main_module = kwargs["main_module"]()
+        mixer_module = kwargs["mixer_module"]()
+        channel = kwargs["channel"]
+        hstream = main_module.get_hstream()
+        manager_solo_status = mixer_module.get_manager_solo()
+
+        if hstream:
+            if manager_solo_status["is_active"](channel):
+                manager_solo_status["update_status_channel"](channel, False)
+                # Solo is OFF
+                # If other channel is not in solo this channel and all other channels has to be in regular volume.
+                # If are one or more channels in solo this channel has to be mute.
+                if manager_solo_status["other_active"](channel):
+                    BASS_MIDI_StreamEvent(hstream, channel, MIDI_EVENT_VOLUME, 0)
+                else:
+                    for index_channel in range(0, mixer_module.get_channels_count()):
+                        if not manager_solo_status["is_active"](index_channel):
+                            BASS_MIDI_StreamEvent(hstream, index_channel, MIDI_EVENT_VOLUME, mixer_module.get_volume(channel))
+            else:
+                manager_solo_status["update_status_channel"](channel, True)
+                # Solo is ON.
+                # If ALL other channel are OFF all channels has to be muted
+                if hstream:
+                    BASS_MIDI_StreamEvent(hstream, channel, MIDI_EVENT_VOLUME, mixer_module.get_volume(channel))
+                    for index_channel in range(0, mixer_module.get_channels_count()):
+                        if not channel == index_channel and not manager_solo_status["is_active"](index_channel):
+                            BASS_MIDI_StreamEvent(hstream, index_channel, MIDI_EVENT_VOLUME, 0)
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def reverb_track(kwargs):
+        pass
+
+    @staticmethod
+    def get_general_midi_presets():
+        tree = ET.parse('general_midi.xml')
+        root = tree.getroot()
+        presets = []
+        for child in root:
+            presets.append(child[0].text + ' ' + child[1].text)
+        return presets
+
+    @staticmethod
+    def set_preset_channel(kwargs):
+        main_module = kwargs["main_module"]()
+        preset_index = kwargs["index_item"]
+        hstream = main_module.get_hstream()
+
+        BASS_MIDI_StreamEvent(hstream, 0, MIDI_EVENT_PROGRAM, preset_index)
+        return True
 
     @staticmethod
     def set_midi_time_coroutine(module):
@@ -358,7 +486,6 @@ class Module:
         self._index_priority = priority
         self._background_src = background_src
         self._render_elements = [VisualObject(self._name, (0, 0), self._background_src)]
-        self._properties = {}
 
     def get_name(self):
         return self._name
@@ -378,15 +505,6 @@ class Module:
     def get_objects_to_render(self):
         return self._render_elements
 
-    def get_properties(self):
-        return self._properties
-
-    def set_property(self, keys, value):
-        dictionary = self._properties
-        for key in keys[:-1]:
-            dictionary = dictionary[key]
-        dictionary[keys[-1]] = value
-
     def add_objects_to_render(self, objects):
         self._render_elements += objects
 
@@ -396,15 +514,10 @@ class MainModule(Module):
         Module.__init__(self, MAIN_MODULE, 344, './main_screen.png', 1)
         self._hstream = None
         self._soundFont = None
-        self._properties = {
-            "midi": {
-                "name": None,
-                "path": None
-            },
-            "global_volume": 100,
-            "global_pitch": 0,
-            "global_tempo": 0
-        }
+        self._file_path = None
+
+    def get_file_path(self):
+        return self._file_path
 
     def get_hstream(self):
         return self._hstream
@@ -414,6 +527,9 @@ class MainModule(Module):
 
     def add_file(self, midi):
         print(str(midi))
+
+    def set_file_path(self, path):
+        self._file_path = path
 
     def set_hstream(self, hstream):
         self._hstream = hstream
@@ -425,176 +541,43 @@ class MainModule(Module):
 class MixerModule(Module):
     def __init__(self):
         Module.__init__(self, MIXER_MODULE, 344, './mixer_screen.png', 3)
-        self._properties = {
-            "channels": 16,
-            "channel_1": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_2": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_3": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_4": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_5": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_6": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_7": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_8": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_9": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_10": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_11": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_12": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_13": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_14": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_15": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            },
-            "channel_16": {
-                "solo": False,
-                "mute": False,
-                "volume": 100,
-                "chorus": 0,
-                "reverb": 0,
-                "pan": 0,
-                "soundFont": None,
-                "program": 0
-            }
+        self._channels_count = 5
+        self._manager_solo = {
+            "active_channels": {},
+            "is_active": self._is_active,
+            "other_active": self._other_active,
+            "update_status_channel": self._update_status_channel
         }
+
+    def _is_active(self, channel):
+        return True if "channel_" + str(channel) in self._manager_solo["active_channels"] else False
+
+    def get_volume(self, channel):
+        # TODO: Save the values of channels volume and get the request channel
+        return 100
+
+    def _other_active(self, channel):
+        return True if len(self._manager_solo["active_channels"]) >= 1 else False
+
+    def _update_status_channel(self, channel, status):
+        prefix = "channel_"
+        if status:
+            self._manager_solo["active_channels"][prefix + str(channel)] = True
+        else:
+            del self._manager_solo["active_channels"][prefix + str(channel)]
+
+    def get_channels_count(self):
+        return self._channels_count
+
+    def get_manager_solo(self):
+        return self._manager_solo
 
 
 class PresetModule(Module):
     def __init__(self):
-        Module.__init__(self, PRESET_MODULE, 150, './loading_screen.png', 4)
-        # TODO: Make a background image for loading
-        self.get_objects_to_render()[0].get_surface().fill((0, 0, 20))
+        Module.__init__(self, PRESET_MODULE, 150, './program_screen.png', 4)
+
+        self._presets = []
 
 
 class Screen:
@@ -650,6 +633,9 @@ class Screen:
 
     def _unset_module(self, module):
         self._active_modules.remove(module)
+
+    def get_main_module(self):
+        return self._main_module
 
     def get_mixer_module(self):
         return self._mixer_module
@@ -717,22 +703,22 @@ class ElementManager:
     def main_module_init(module, screen):
         open_midi_hover_state_surface = ImageButtonState('hover', './sprite.png', (0, 59, 54, 58))
         open_midi_button = Button('Open Midi Button', (143, 92, 54, 58), [open_midi_hover_state_surface],
-                                  Bass.open_midi, module=module)
+                                  Bass.open_midi, main_module=module, mixer_module=screen.get_mixer_module)
         open_midi_button.set_hold_active(False)
         save_file_hover_state_surface = ImageButtonState('hover', './sprite.png', (58, 59, 54, 58))
         save_file_disabled_state_surface = ImageButtonState('disabled', './sprite.png', (58, 156, 54, 58))
         save_file_button = Button('Save File Button', (199, 92, 54, 58), [save_file_hover_state_surface, save_file_disabled_state_surface],
-                                  Bass.save_session, main_module=module, mixer_module=screen.get_mixer_module)
+                                  Bass.save_file, main_module=module, mixer_module=screen.get_mixer_module)
         save_file_button.disabled(True)
         save_file_button.set_hold_active(False)
         open_soundfont_hover_state_surface = ImageButtonState('hover', './sprite.png', (116, 59, 54, 58))
         open_soundfont_button = Button('Open SoundFont Button', (258, 92, 54, 58), [open_soundfont_hover_state_surface],
                                        Bass.open_soundFont, module=module)
         open_soundfont_button.set_hold_active(False)
-        save_gm_file_hover_state_surface = ImageButtonState('hover', './sprite.png', (176, 59, 54, 58))
-        save_gm_file_button = Button('Convert to CSF Button', (316, 92, 54, 58), [save_gm_file_hover_state_surface],
-                                     Bass.convert_to_csf)
-        save_gm_file_button.set_hold_active(False)
+        open_web_hover_state_surface = ImageButtonState('hover', './sprite.png', (176, 59, 54, 58))
+        open_web_button = Button('Open Web Button', (316, 92, 54, 58), [open_web_hover_state_surface],
+                                     Bass.open_goldmidi_web)
+        open_web_button.set_hold_active(False)
         export_mp3_hover_state_surface = ImageButtonState('hover', './sprite.png', (232, 59, 54, 58))
         export_mp3_disabled_state_surface = ImageButtonState('disabled', './sprite.png', (232, 156, 54, 58))
         export_mp3_button = Button('Convert MP3 Button', (372, 92, 54, 58), [export_mp3_hover_state_surface, export_mp3_disabled_state_surface],
@@ -782,16 +768,16 @@ class ElementManager:
         puller = Puller('./sprite.png', (913, 63, 29, 16))
         sliders_font = pygame.font.Font("./fonts/conthrax-sb.ttf", 16)
         global_volume_text = Text('Global Volume Text', (87, 114), sliders_font, '100')
-        global_volume_slider = Slider('Global Volume Slider', (87, 151), 148, puller, global_volume_text, 0, 100,
+        global_volume_slider = Slider('Global Volume Slider', (87, 151), 148, puller, global_volume_text, 0, 127,
                                       Bass.slider_exec)
         global_pitch_text = Text('Global Pitch Text', (632, 114), sliders_font, '0')
-        global_pitch_slider = Slider('Global Pitch Slider', (638, 151), 148, puller, global_pitch_text, -100, 100,
+        global_pitch_slider = Slider('Global Pitch Slider', (638, 151), 148, puller, global_pitch_text, -12, 12,
                                      Bass.slider_exec)
         global_pitch_slider.draw(74)
-        global_tempo_text = Text('Global Tempo Text', (705, 114), sliders_font, '0')
-        global_tempo_slider = Slider('Global Tempo Slider', (712, 151), 148, puller, global_tempo_text, -100, 100,
+        global_tempo_text = Text('Global Tempo Text', (705, 114), sliders_font, '120')
+        global_tempo_slider = Slider('Global Tempo Slider', (712, 151), 148, puller, global_tempo_text, 1, 382,
                                      Bass.slider_exec)
-        global_tempo_slider.draw(74)
+        global_tempo_slider.draw(117)
 
         midi_name_text = Text('Midi Name Text', (158, 165), sliders_font, 'Midi Name', (36, 71, 84))
         midi_time_text = Text('Midi Time Text', (158, 225), sliders_font, '00:00:00', (36, 71, 84))
@@ -801,7 +787,7 @@ class ElementManager:
             open_midi_button,
             save_file_button,
             open_soundfont_button,
-            save_gm_file_button,
+            open_web_button,
             export_mp3_button,
             toggle_mixer_button,
             toggle_piano_button,
@@ -826,74 +812,80 @@ class ElementManager:
 
     @staticmethod
     def mixer_module_init(module, screen):
-        solo_track_hover_image = ImageButtonState('hover', './sprite.png', (308, 119, 27, 10))
-        solo_track_active_image = ImageButtonState('active', './sprite.png', (278, 119, 27, 10))
-        solo_track_1_button = Button('Solo Track 1 Button', (14, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_2_button = Button('Solo Track 2 Button', (64, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_3_button = Button('Solo Track 3 Button', (114, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_4_button = Button('Solo Track 4 Button', (164, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_5_button = Button('Solo Track 5 Button', (214, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_6_button = Button('Solo Track 6 Button', (264, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_7_button = Button('Solo Track 7 Button', (314, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_8_button = Button('Solo Track 8 Button', (364, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_9_button = Button('Solo Track 9 Button', (414, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_10_button = Button('Solo Track 10 Button', (464, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_11_button = Button('Solo Track 11 Button', (514, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_12_button = Button('Solo Track 12 Button', (564, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_13_button = Button('Solo Track 13 Button', (614, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_14_button = Button('Solo Track 14 Button', (664, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_15_button = Button('Solo Track 15 Button', (714, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
-        solo_track_16_button = Button('Solo Track 16 Button', (764, 7, 27, 10), [solo_track_hover_image, solo_track_active_image], Bass.button_exec)
+
+        button_solo_y_position = 23
+        button_mixer_width = 32
+        solo_track_hover_image = ImageButtonState('hover', './sprite.png', (308, 119, 32, 10))
+        solo_track_active_image = ImageButtonState('active', './sprite.png', (278, 119, button_mixer_width, 10))
+        solo_track_1_button = Button('Solo Track 1 Button', (10, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=0)
+        solo_track_2_button = Button('Solo Track 2 Button', (60, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=1)
+        solo_track_3_button = Button('Solo Track 3 Button', (110, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=2)
+        solo_track_4_button = Button('Solo Track 4 Button', (160, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=3)
+        solo_track_5_button = Button('Solo Track 5 Button', (210, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=4)
+        solo_track_6_button = Button('Solo Track 6 Button', (260, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=5)
+        solo_track_7_button = Button('Solo Track 7 Button', (310, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=6)
+        solo_track_8_button = Button('Solo Track 8 Button', (360, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=7)
+        solo_track_9_button = Button('Solo Track 9 Button', (410, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=8)
+        solo_track_10_button = Button('Solo Track 10 Button', (460, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=9)
+        solo_track_11_button = Button('Solo Track 11 Button', (510, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=10)
+        solo_track_12_button = Button('Solo Track 12 Button', (560, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=11)
+        solo_track_13_button = Button('Solo Track 13 Button', (610, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=12)
+        solo_track_14_button = Button('Solo Track 14 Button', (660, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=13)
+        solo_track_15_button = Button('Solo Track 15 Button', (710, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=14)
+        solo_track_16_button = Button('Solo Track 16 Button', (760, button_solo_y_position, button_mixer_width, 10), [solo_track_hover_image, solo_track_active_image], Bass.solo_track, main_module=screen.get_main_module, mixer_module=screen.get_mixer_module, channel=15)
 
         knob_sprite = ImageButtonState('active', './sprite.png', (0, 117, 259, 26))
-        reverb_track_1_knob = Knob('Reverb Track 1 Knob', (13, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_2_knob = Knob('Reverb Track 2 Knob', (63, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_3_knob = Knob('Reverb Track 3 Knob', (113, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_4_knob = Knob('Reverb Track 4 Knob', (163, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_5_knob = Knob('Reverb Track 5 Knob', (213, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_6_knob = Knob('Reverb Track 6 Knob', (263, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_7_knob = Knob('Reverb Track 7 Knob', (313, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_8_knob = Knob('Reverb Track 8 Knob', (363, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_9_knob = Knob('Reverb Track 9 Knob', (413, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_10_knob = Knob('Reverb Track 10 Knob', (463, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_11_knob = Knob('Reverb Track 11 Knob', (513, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_12_knob = Knob('Reverb Track 12 Knob', (563, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_13_knob = Knob('Reverb Track 13 Knob', (613, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_14_knob = Knob('Reverb Track 14 Knob', (663, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_15_knob = Knob('Reverb Track 15 Knob', (713, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        reverb_track_16_knob = Knob('Reverb Track 16 Knob', (763, 51, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_1_knob = Knob('Chorus Track 1 Knob', (13, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_2_knob = Knob('Chorus Track 2 Knob', (63, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_3_knob = Knob('Chorus Track 3 Knob', (113, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_4_knob = Knob('Chorus Track 4 Knob', (163, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_5_knob = Knob('Chorus Track 5 Knob', (213, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_6_knob = Knob('Chorus Track 6 Knob', (263, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_7_knob = Knob('Chorus Track 7 Knob', (313, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_8_knob = Knob('Chorus Track 8 Knob', (363, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_9_knob = Knob('Chorus Track 9 Knob', (413, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_10_knob = Knob('Chorus Track 10 Knob', (463, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_11_knob = Knob('Chorus Track 11 Knob', (513, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_12_knob = Knob('Chorus Track 12 Knob', (563, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_13_knob = Knob('Chorus Track 13 Knob', (613, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_14_knob = Knob('Chorus Track 14 Knob', (663, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_15_knob = Knob('Chorus Track 15 Knob', (713, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        chorus_track_16_knob = Knob('Chorus Track 16 Knob', (763, 96, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_1_knob = Knob('Pan Track 1 Knob', (13, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_2_knob = Knob('Pan Track 2 Knob', (63, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_3_knob = Knob('Pan Track 3 Knob', (113, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_4_knob = Knob('Pan Track 4 Knob', (163, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_5_knob = Knob('Pan Track 5 Knob', (213, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_6_knob = Knob('Pan Track 6 Knob', (263, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_7_knob = Knob('Pan Track 7 Knob', (313, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_8_knob = Knob('Pan Track 8 Knob', (363, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_9_knob = Knob('Pan Track 9 Knob', (413, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_10_knob = Knob('Pan Track 10 Knob', (463, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_11_knob = Knob('Pan Track 11 Knob', (513, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_12_knob = Knob('Pan Track 12 Knob', (563, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_13_knob = Knob('Pan Track 13 Knob', (613, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_14_knob = Knob('Pan Track 14 Knob', (663, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_15_knob = Knob('Pan Track 15 Knob', (713, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
-        pan_track_16_knob = Knob('Pan Track 16 Knob', (763, 141, 26, 26), knob_sprite, None, Bass.knob_exec)
+        knob_reverb_y_position = 59
+        reverb_track_1_knob = Knob('Reverb Track 1 Knob', (13, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_2_knob = Knob('Reverb Track 2 Knob', (63, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_3_knob = Knob('Reverb Track 3 Knob', (113, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_4_knob = Knob('Reverb Track 4 Knob', (163, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_5_knob = Knob('Reverb Track 5 Knob', (213, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_6_knob = Knob('Reverb Track 6 Knob', (263, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_7_knob = Knob('Reverb Track 7 Knob', (313, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_8_knob = Knob('Reverb Track 8 Knob', (363, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_9_knob = Knob('Reverb Track 9 Knob', (413, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_10_knob = Knob('Reverb Track 10 Knob', (463, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_11_knob = Knob('Reverb Track 11 Knob', (513, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_12_knob = Knob('Reverb Track 12 Knob', (563, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_13_knob = Knob('Reverb Track 13 Knob', (613, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_14_knob = Knob('Reverb Track 14 Knob', (663, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_15_knob = Knob('Reverb Track 15 Knob', (713, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        reverb_track_16_knob = Knob('Reverb Track 16 Knob', (763, knob_reverb_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        knob_chorus_y_position = 95
+        chorus_track_1_knob = Knob('Chorus Track 1 Knob', (13, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_2_knob = Knob('Chorus Track 2 Knob', (63, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_3_knob = Knob('Chorus Track 3 Knob', (113, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_4_knob = Knob('Chorus Track 4 Knob', (163, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_5_knob = Knob('Chorus Track 5 Knob', (213, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_6_knob = Knob('Chorus Track 6 Knob', (263, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_7_knob = Knob('Chorus Track 7 Knob', (313, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_8_knob = Knob('Chorus Track 8 Knob', (363, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_9_knob = Knob('Chorus Track 9 Knob', (413, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_10_knob = Knob('Chorus Track 10 Knob', (463, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_11_knob = Knob('Chorus Track 11 Knob', (513, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_12_knob = Knob('Chorus Track 12 Knob', (563, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_13_knob = Knob('Chorus Track 13 Knob', (613, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_14_knob = Knob('Chorus Track 14 Knob', (663, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_15_knob = Knob('Chorus Track 15 Knob', (713, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        chorus_track_16_knob = Knob('Chorus Track 16 Knob', (763, knob_chorus_y_position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        knob_pan__position = 133
+        pan_track_1_knob = Knob('Pan Track 1 Knob', (13, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_2_knob = Knob('Pan Track 2 Knob', (63, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_3_knob = Knob('Pan Track 3 Knob', (113, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_4_knob = Knob('Pan Track 4 Knob', (163, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_5_knob = Knob('Pan Track 5 Knob', (213, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_6_knob = Knob('Pan Track 6 Knob', (263, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_7_knob = Knob('Pan Track 7 Knob', (313, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_8_knob = Knob('Pan Track 8 Knob', (363, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_9_knob = Knob('Pan Track 9 Knob', (413, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_10_knob = Knob('Pan Track 10 Knob', (463, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_11_knob = Knob('Pan Track 11 Knob', (513, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_12_knob = Knob('Pan Track 12 Knob', (563, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_13_knob = Knob('Pan Track 13 Knob', (613, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_14_knob = Knob('Pan Track 14 Knob', (663, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_15_knob = Knob('Pan Track 15 Knob', (713, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
+        pan_track_16_knob = Knob('Pan Track 16 Knob', (763, knob_pan__position, 26, 26), knob_sprite, None, Bass.knob_exec)
         pan_track_1_knob.draw(4)
         pan_track_2_knob.draw(4)
         pan_track_3_knob.draw(4)
@@ -912,91 +904,96 @@ class ElementManager:
         pan_track_16_knob.draw(4)
 
         mixer_font = pygame.font.Font("./fonts/conthrax-sb.ttf", 12)
+        mixer_font_small = pygame.font.Font("./fonts/conthrax-sb.ttf", 7)
         mixer_slider_puller = Puller('./sprite.png', (913, 63, 29, 16))
-        volume_track_1_text = Text('Volume Track 1 Text', (13, 174), mixer_font, '100')
-        volume_track_2_text = Text('Volume Track 2 Text', (63, 174), mixer_font, '100')
-        volume_track_3_text = Text('Volume Track 3 Text', (113, 174), mixer_font, '100')
-        volume_track_4_text = Text('Volume Track 4 Text', (163, 174), mixer_font, '100')
-        volume_track_5_text = Text('Volume Track 5 Text', (213, 174), mixer_font, '100')
-        volume_track_6_text = Text('Volume Track 6 Text', (263, 174), mixer_font, '100')
-        volume_track_7_text = Text('Volume Track 7 Text', (313, 174), mixer_font, '100')
-        volume_track_8_text = Text('Volume Track 8 Text', (363, 174), mixer_font, '100')
-        volume_track_9_text = Text('Volume Track 9 Text', (413, 174), mixer_font, '100')
-        volume_track_10_text = Text('Volume Track 10 Text', (463, 174), mixer_font, '100')
-        volume_track_11_text = Text('Volume Track 11 Text', (513, 174), mixer_font, '100')
-        volume_track_12_text = Text('Volume Track 12 Text', (563, 174), mixer_font, '100')
-        volume_track_13_text = Text('Volume Track 13 Text', (613, 174), mixer_font, '100')
-        volume_track_14_text = Text('Volume Track 14 Text', (663, 174), mixer_font, '100')
-        volume_track_15_text = Text('Volume Track 15 Text', (713, 174), mixer_font, '100')
-        volume_track_16_text = Text('Volume Track 16 Text', (763, 174), mixer_font, '100')
-        volume_track_1_slider = Slider('Volume Track 1 Slider', (11, 202), 100, mixer_slider_puller, volume_track_1_text, 0, 100, Bass.slider_exec)
-        volume_track_2_slider = Slider('Volume Track 2 Slider', (62, 202), 100, mixer_slider_puller, volume_track_2_text, 0, 100, Bass.slider_exec)
-        volume_track_3_slider = Slider('Volume Track 3 Slider', (111, 202), 100, mixer_slider_puller, volume_track_3_text, 0, 100, Bass.slider_exec)
-        volume_track_4_slider = Slider('Volume Track 4 Slider', (162, 202), 100, mixer_slider_puller, volume_track_4_text, 0, 100, Bass.slider_exec)
-        volume_track_5_slider = Slider('Volume Track 5 Slider', (211, 202), 100, mixer_slider_puller, volume_track_5_text, 0, 100, Bass.slider_exec)
-        volume_track_6_slider = Slider('Volume Track 6 Slider', (262, 202), 100, mixer_slider_puller, volume_track_6_text, 0, 100, Bass.slider_exec)
-        volume_track_7_slider = Slider('Volume Track 7 Slider', (311, 202), 100, mixer_slider_puller, volume_track_7_text, 0, 100, Bass.slider_exec)
-        volume_track_8_slider = Slider('Volume Track 8 Slider', (362, 202), 100, mixer_slider_puller, volume_track_8_text, 0, 100, Bass.slider_exec)
-        volume_track_9_slider = Slider('Volume Track 9 Slider', (411, 202), 100, mixer_slider_puller, volume_track_9_text, 0, 100, Bass.slider_exec)
-        volume_track_10_slider = Slider('Volume Track 10 Slider', (462, 202), 100, mixer_slider_puller, volume_track_10_text, 0, 100, Bass.slider_exec)
-        volume_track_11_slider = Slider('Volume Track 11 Slider', (511, 202), 100, mixer_slider_puller, volume_track_11_text, 0, 100, Bass.slider_exec)
-        volume_track_12_slider = Slider('Volume Track 12 Slider', (562, 202), 100, mixer_slider_puller, volume_track_12_text, 0, 100, Bass.slider_exec)
-        volume_track_13_slider = Slider('Volume Track 13 Slider', (611, 202), 100, mixer_slider_puller, volume_track_13_text, 0, 100, Bass.slider_exec)
-        volume_track_14_slider = Slider('Volume Track 14 Slider', (662, 202), 100, mixer_slider_puller, volume_track_14_text, 0, 100, Bass.slider_exec)
-        volume_track_15_slider = Slider('Volume Track 15 Slider', (711, 202), 100, mixer_slider_puller, volume_track_15_text, 0, 100, Bass.slider_exec)
-        volume_track_16_slider = Slider('Volume Track 16 Slider', (762, 202), 100, mixer_slider_puller, volume_track_16_text, 0, 100, Bass.slider_exec)
+        slider_text_volume_y_position = 167
+        volume_track_1_text = Text('Volume Track 1 Text', (13, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_2_text = Text('Volume Track 2 Text', (63, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_3_text = Text('Volume Track 3 Text', (113, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_4_text = Text('Volume Track 4 Text', (163, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_5_text = Text('Volume Track 5 Text', (213, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_6_text = Text('Volume Track 6 Text', (263, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_7_text = Text('Volume Track 7 Text', (313, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_8_text = Text('Volume Track 8 Text', (363, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_9_text = Text('Volume Track 9 Text', (413, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_10_text = Text('Volume Track 10 Text', (463, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_11_text = Text('Volume Track 11 Text', (513, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_12_text = Text('Volume Track 12 Text', (563, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_13_text = Text('Volume Track 13 Text', (613, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_14_text = Text('Volume Track 14 Text', (663, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_15_text = Text('Volume Track 15 Text', (713, slider_text_volume_y_position), mixer_font, '100')
+        volume_track_16_text = Text('Volume Track 16 Text', (763, slider_text_volume_y_position), mixer_font, '100')
+        slider_volume_y_position = 200
+        volume_track_1_slider = Slider('Volume Track 1 Slider', (11, slider_volume_y_position), 100, mixer_slider_puller, volume_track_1_text, 0, 127, Bass.slider_exec)
+        volume_track_2_slider = Slider('Volume Track 2 Slider', (62, slider_volume_y_position), 100, mixer_slider_puller, volume_track_2_text, 0, 127, Bass.slider_exec)
+        volume_track_3_slider = Slider('Volume Track 3 Slider', (111, slider_volume_y_position), 100, mixer_slider_puller, volume_track_3_text, 0, 127, Bass.slider_exec)
+        volume_track_4_slider = Slider('Volume Track 4 Slider', (162, slider_volume_y_position), 100, mixer_slider_puller, volume_track_4_text, 0, 127, Bass.slider_exec)
+        volume_track_5_slider = Slider('Volume Track 5 Slider', (211, slider_volume_y_position), 100, mixer_slider_puller, volume_track_5_text, 0, 127, Bass.slider_exec)
+        volume_track_6_slider = Slider('Volume Track 6 Slider', (262, slider_volume_y_position), 100, mixer_slider_puller, volume_track_6_text, 0, 127, Bass.slider_exec)
+        volume_track_7_slider = Slider('Volume Track 7 Slider', (311, slider_volume_y_position), 100, mixer_slider_puller, volume_track_7_text, 0, 127, Bass.slider_exec)
+        volume_track_8_slider = Slider('Volume Track 8 Slider', (362, slider_volume_y_position), 100, mixer_slider_puller, volume_track_8_text, 0, 127, Bass.slider_exec)
+        volume_track_9_slider = Slider('Volume Track 9 Slider', (411, slider_volume_y_position), 100, mixer_slider_puller, volume_track_9_text, 0, 127, Bass.slider_exec)
+        volume_track_10_slider = Slider('Volume Track 10 Slider', (462, slider_volume_y_position), 100, mixer_slider_puller, volume_track_10_text, 0, 127, Bass.slider_exec)
+        volume_track_11_slider = Slider('Volume Track 11 Slider', (511, slider_volume_y_position), 100, mixer_slider_puller, volume_track_11_text, 0, 127, Bass.slider_exec)
+        volume_track_12_slider = Slider('Volume Track 12 Slider', (562, slider_volume_y_position), 100, mixer_slider_puller, volume_track_12_text, 0, 127, Bass.slider_exec)
+        volume_track_13_slider = Slider('Volume Track 13 Slider', (611, slider_volume_y_position), 100, mixer_slider_puller, volume_track_13_text, 0, 127, Bass.slider_exec)
+        volume_track_14_slider = Slider('Volume Track 14 Slider', (662, slider_volume_y_position), 100, mixer_slider_puller, volume_track_14_text, 0, 127, Bass.slider_exec)
+        volume_track_15_slider = Slider('Volume Track 15 Slider', (711, slider_volume_y_position), 100, mixer_slider_puller, volume_track_15_text, 0, 127, Bass.slider_exec)
+        volume_track_16_slider = Slider('Volume Track 16 Slider', (762, slider_volume_y_position), 100, mixer_slider_puller, volume_track_16_text, 0, 127, Bass.slider_exec)
 
-        mute_track_hover_image = ImageButtonState('hover', './sprite.png', (308, 134, 27, 10))
-        mute_track_active_image = ImageButtonState('active', './sprite.png', (278, 134, 27, 10))
-        mute_tack_1_button = Button('Mute Track 1 Button', (14, 22, 27, 10),
-                                    [mute_track_hover_image, mute_track_active_image], Bass.mute_track, slider=volume_track_1_slider)
-        mute_tack_2_button = Button('Mute Track 2 Button', (64, 22, 27, 10),
+        mute_track_hover_image = ImageButtonState('hover', './sprite.png', (309, 130, 32, 10))
+        mute_track_active_image = ImageButtonState('active', './sprite.png', (278, 130, 32, 10))
+        button_mute_y_position = 37
+        mute_tack_1_button = Button('Mute Track 1 Button', (10, button_mute_y_position, button_mixer_width, 10),
+                                    [mute_track_hover_image, mute_track_active_image], Bass.mute_track, slider=volume_track_1_slider, main_module=screen.get_main_module, channel=0)
+        mute_tack_2_button = Button('Mute Track 2 Button', (60, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_2_slider)
-        mute_tack_3_button = Button('Mute Track 3 Button', (114, 22, 27, 10),
+                                    slider=volume_track_2_slider, main_module=screen.get_main_module, channel=1)
+        mute_tack_3_button = Button('Mute Track 3 Button', (110, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_3_slider)
-        mute_tack_4_button = Button('Mute Track 4 Button', (164, 22, 27, 10),
+                                    slider=volume_track_3_slider, main_module=screen.get_main_module, channel=2)
+        mute_tack_4_button = Button('Mute Track 4 Button', (160, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_4_slider)
-        mute_tack_5_button = Button('Mute Track 5 Button', (214, 22, 27, 10),
+                                    slider=volume_track_4_slider, main_module=screen.get_main_module, channel=3)
+        mute_tack_5_button = Button('Mute Track 5 Button', (210, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_5_slider)
-        mute_tack_6_button = Button('Mute Track 6 Button', (264, 22, 27, 10),
+                                    slider=volume_track_5_slider, main_module=screen.get_main_module, channel=4)
+        mute_tack_6_button = Button('Mute Track 6 Button', (260, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_6_slider)
-        mute_tack_7_button = Button('Mute Track 7 Button', (314, 22, 27, 10),
+                                    slider=volume_track_6_slider, main_module=screen.get_main_module, channel=5)
+        mute_tack_7_button = Button('Mute Track 7 Button', (310, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_7_slider)
-        mute_tack_8_button = Button('Mute Track 8 Button', (364, 22, 27, 10),
+                                    slider=volume_track_7_slider, main_module=screen.get_main_module, channel=6)
+        mute_tack_8_button = Button('Mute Track 8 Button', (360, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_8_slider)
-        mute_tack_9_button = Button('Mute Track 9 Button', (414, 22, 27, 10),
+                                    slider=volume_track_8_slider, main_module=screen.get_main_module, channel=7)
+        mute_tack_9_button = Button('Mute Track 9 Button', (410, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_9_slider)
-        mute_tack_10_button = Button('Mute Track 10 Button', (464, 22, 27, 10),
+                                    slider=volume_track_9_slider, main_module=screen.get_main_module, channel=8)
+        mute_tack_10_button = Button('Mute Track 10 Button', (460, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_10_slider)
-        mute_tack_11_button = Button('Mute Track 11 Button', (514, 22, 27, 10),
+                                    slider=volume_track_10_slider, main_module=screen.get_main_module, channel=9)
+        mute_tack_11_button = Button('Mute Track 11 Button', (510, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_11_slider)
-        mute_tack_12_button = Button('Mute Track 12 Button', (564, 22, 27, 10),
+                                    slider=volume_track_11_slider, main_module=screen.get_main_module, channel=10)
+        mute_tack_12_button = Button('Mute Track 12 Button', (560, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_12_slider)
-        mute_tack_13_button = Button('Mute Track 13 Button', (614, 22, 27, 10),
+                                    slider=volume_track_12_slider, main_module=screen.get_main_module, channel=11)
+        mute_tack_13_button = Button('Mute Track 13 Button', (610, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_13_slider)
-        mute_tack_14_button = Button('Mute Track 14 Button', (664, 22, 27, 10),
+                                    slider=volume_track_13_slider, main_module=screen.get_main_module, channel=12)
+        mute_tack_14_button = Button('Mute Track 14 Button', (660, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_14_slider)
-        mute_tack_15_button = Button('Mute Track 15 Button', (714, 22, 27, 10),
+                                    slider=volume_track_14_slider, main_module=screen.get_main_module, channel=13)
+        mute_tack_15_button = Button('Mute Track 15 Button', (710, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_15_slider)
-        mute_tack_16_button = Button('Mute Track 16 Button', (764, 22, 27, 10),
+                                    slider=volume_track_15_slider, main_module=screen.get_main_module, channel=14)
+        mute_tack_16_button = Button('Mute Track 16 Button', (760, button_mute_y_position, button_mixer_width, 10),
                                     [mute_track_hover_image, mute_track_active_image], Bass.mute_track,
-                                    slider=volume_track_16_slider)
+                                    slider=volume_track_16_slider, main_module=screen.get_main_module, channel=15)
 
-        change_preset_1_button = Button('Change Preset 1 Button', (7, 315, 36, 12), [], screen.toggle_module, module=PRESET_MODULE)
+        change_preset_1_button = Button('Change Preset 1 Button', (7, 319, 36, 12), [], screen.toggle_module, module=PRESET_MODULE)
+        change_preset_1_text = Text("Change Preset 1 Text", (10, 318), mixer_font_small, "Piano A")
 
         module.add_objects_to_render([
             solo_track_1_button,
@@ -1111,12 +1108,19 @@ class ElementManager:
             volume_track_14_slider,
             volume_track_15_slider,
             volume_track_16_slider,
-            change_preset_1_button
+            change_preset_1_button,
+            change_preset_1_text
         ])
 
     @staticmethod
     def preset_module_init(module, screen):
-        pass
+        print('Adding elements for preset module')
+        list_font = pygame.font.Font("./fonts/conthrax-sb.ttf", 10)
+        presets_list = ListSelection('Presets List', (16, 35, 790, 100), list_font, 3, 4, 5, Bass.get_general_midi_presets, Bass.set_preset_channel, main_module=screen.get_main_module)
+
+        module.add_objects_to_render([
+            presets_list
+        ])
 
 
 """
@@ -1139,6 +1143,156 @@ class State:
 
 
 """
+LIST SELECTION
+"""
+
+class IdleList(State):
+
+    @staticmethod
+    def on_enter_state(selection_list):
+        selection_list.draw()
+
+    @staticmethod
+    def update(selection_list):
+        if selection_list.is_mouse_over() and selection_list.is_mouse_button_down():
+            selection_list.click_update()
+            pygame.time.wait(State.WAIT_TIME)
+
+
+class ActiveList(State):
+
+    @staticmethod
+    def on_enter_state(element):
+        pass
+
+    @staticmethod
+    def update(element):
+        pass
+
+
+class ListSelection:
+    STATES = {
+        "idle": IdleList,
+        "active": ActiveList
+    }
+
+    def __init__(self, name, area, font, text_vertical_space, columns, padding, get_items_function, function_to_bind, **kwargs):
+        self._name = name
+        self._area = area
+        self._offset_position = (0, 0)
+        self._font = font
+        self._columns = columns
+        self._padding = padding
+        self._text_vertical_space = text_vertical_space
+        self._items_list = []
+        self._index_first_item_page = 0
+        self._get_items_function = get_items_function
+        self._bounded_function = function_to_bind
+        self._kwargs_function = kwargs
+        self._state = None
+        self._surface = None
+
+        self.set_state(ListSelection.STATES["idle"])
+
+    def call_bind_function(self):
+        if not self._kwargs_function:
+            self._bounded_function()
+        else:
+            self._bounded_function(self._kwargs_function)
+
+    def get_name(self):
+        return self._name
+
+    def get_position(self):
+        return self._area[0] + self._offset_position[0], self._area[1] + self._offset_position[1]
+
+    def get_surface(self):
+        return self._surface
+
+    def get_size(self):
+        return self._area[2], self._area[3]
+
+    def set_state(self, state):
+        self._state = state
+        self._state.on_enter_state(self)
+
+    def set_offset_height(self, offset):
+        self._offset_position = (self._offset_position[0], offset)
+
+    def set_items_function(self, function):
+        self._get_items_function = function
+
+    def click_update(self):
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        position_x, position_y = self.get_position()
+        width, height = self.get_size()
+        if mouse_x - position_x > width -17:
+            if mouse_y - position_y < 11:
+                if self._index_first_item_page > 0:
+                    self._index_first_item_page -= 25
+            else:
+                if self._index_first_item_page < 100:
+                    self._index_first_item_page += 25
+            self.draw()
+        else:
+            rel_pos_x = mouse_x - position_x
+            rel_pos_y = mouse_y - position_y
+
+            font_height = self._font.get_height()
+            items_per_column = height / font_height
+            row = int(rel_pos_y / font_height)
+            col = int(rel_pos_x / 180)
+
+            index_item = self._index_first_item_page + (col * items_per_column) + row
+            self._kwargs_function["index_item"] = index_item
+            self.call_bind_function()
+
+    def draw(self):
+        self._items_list = self._get_items_function()[self._index_first_item_page:]
+        width, height = self.get_size()
+        self._surface = pygame.Surface((width, height), pygame.SRCALPHA)
+
+        font_height = self._font.get_height()
+        text_pos_x, text_pos_y = (0, 0)
+        display_items = self._index_first_item_page
+        xpace = width / self._columns
+        for item in self._items_list:
+            if text_pos_x + xpace < width:
+                text_pos_y += self._text_vertical_space
+                preset = Text('Preset', (text_pos_x, text_pos_y), self._font, item[:26])
+                self._surface.blit(preset.get_surface(), preset.get_position())
+                display_items = display_items + 1
+                text_pos_y += font_height + self._text_vertical_space
+                if text_pos_y + font_height > height:
+                    text_pos_x += xpace
+                    text_pos_y = 0
+            else:
+                break
+
+        print(display_items)
+
+
+    def is_drawable(self):
+        return True
+
+    def is_mouse_over(self):
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        width, height = self.get_size()
+        position_x, position_y = self.get_position()
+
+        if position_x < mouse_x < position_x + width and position_y < mouse_y < position_y + height:
+            touching = True
+        else:
+            touching = False
+        return touching
+
+    def is_mouse_button_down(self, button=0):
+        return pygame.mouse.get_pressed()[button]
+
+    def update(self):
+        self._state.update(self)
+
+"""
 KNOB
 """
 
@@ -1157,11 +1311,13 @@ class IdleKnob(State):
 class HoverKnob(State):
     @staticmethod
     def on_enter_state(knob):
+        knob.draw(value_display=True)
         pass
 
     @staticmethod
     def update(knob):
         if not knob.is_mouse_over():
+            knob.draw(value_display=False)
             knob.set_state(knob.STATES["idle"])
         elif knob.is_mouse_button_down():
             knob.set_relative_track_point()
@@ -1175,12 +1331,21 @@ class ActiveKnob(State):
 
     @staticmethod
     def update(knob):
-        if not knob.is_mouse_over() or not knob.is_mouse_button_down():
-            knob.call_bind_function()
-            print('Knob calling ', knob.get_name())
-            knob.set_state(knob.STATES["idle"])
+        if not knob.is_mouse_over():
+            if knob.is_mouse_button_down():
+                pass
+            else:
+                knob.call_bind_function()
+                print('Knob calling ', knob.get_name())
+                knob.set_state(knob.STATES["idle"])
+                knob.draw(value_display=False)
+                knob.set_state(knob.STATES["idle"])
         else:
-            knob.draw()
+            if knob.is_mouse_button_down():
+                knob.draw()
+            else:
+                knob.draw(value_display=False)
+                knob.set_state(knob.STATES["idle"])
 
 
 class DisabledKnob(State):
@@ -1208,7 +1373,7 @@ class Knob:
         self._knob_sprite = knob_sprite
         self._surface = pygame.Surface(self.get_size(), pygame.SRCALPHA)
         if DEBUG:
-            self._surface.fill((200, 180, 0, 35))
+            self._surface.fill(DEBUG_COLOR)
         self._state = None
         self._relative_track_point = None
         self._bounded_function = function_to_bind
@@ -1216,6 +1381,7 @@ class Knob:
         # TODO: Help Text
         self.set_state(self.STATES["idle"])
         self._value = 0
+        self._text_display = None
         self.draw()
 
     def _linear(self, value, min_in, max_in, min_out, max_out):
@@ -1223,6 +1389,34 @@ class Knob:
         b = float(max_out) - float(a) * float(max_in)
         new_value = float(a) * float(value) + float(b)
         return float(new_value)
+
+    def _add_padding(self, area, padding, widthHeightSolo=False):
+        new_area = []
+        count = 0
+        for item in area:
+            if widthHeightSolo and count < 2:
+                count += 1
+                continue
+            new_area.append(item)
+
+        if len(new_area) == 4:
+            new_area[0] += padding
+            new_area[1] += padding
+            new_area[2] -= padding
+            new_area[3] -= padding
+        elif len(new_area) == 2:
+            new_area[0] -= padding
+            new_area[1] -= padding
+
+        return tuple(new_area)
+
+    def _limit(self, value, min, max):
+        if min > value:
+            value = min
+        elif max < value:
+            value = max
+
+        return value
 
     def call_bind_function(self):
         if not self._kwargs_function:
@@ -1261,15 +1455,36 @@ class Knob:
         else:
             self.set_state(self.STATES["idle"])
 
-    def draw(self, value=None):
-
+    def draw(self, value=None, value_display=None):
         if value is None:
             if self._relative_track_point is not None:
                 raw_value = pygame.mouse.get_pos()[0] - self._relative_track_point
-                self._value = self._linear(raw_value, -18, 18, 0, 9)
+                convert_value = self._linear(raw_value, -14, 14, 0, 9)
+                self._value = self._limit(convert_value, 0, 9)
+        else:
+            self._value = value
         width, height = self.get_size()
         position_x = width * int(self._value)
+
+        if value_display is not None:
+            if value_display is True:
+                self._surface = pygame.Surface((50, 50), pygame.SRCALPHA)
+                font_display = pygame.font.Font("./fonts/conthrax-sb.ttf", 12)
+                self._text_display = Text("knob value", (0, 0), font_display, '-', (245, 245, 245))
+            else:
+                self._text_display = None
+                self._surface = pygame.Surface(self.get_size(), pygame.SRCALPHA)
+#                self._surface.fill((0, 0, 0, 0))
+
         self._surface.blit(self._knob_sprite.get_surface(), (0, 0), (position_x, 0, width, height))
+
+        if self._text_display:
+            display_size = self._add_padding(self._area, 5, widthHeightSolo=True)
+            display = pygame.Surface((25, 15), pygame.SRCALPHA)
+            display.fill(color=(10, 10, 10, 200))
+            self._surface.blit(display, (20, 0))
+            self._text_display.render(str(int(self._linear(self._value, 0, 9, 0, 127))))
+            self._surface.blit(self._text_display.get_surface(), (22, 0))
 
     def is_drawable(self):
         return True
@@ -1290,6 +1505,9 @@ class Knob:
 
     def update(self):
         self._state.update(self)
+
+    def raw_to_knob_value(self, value):
+        return self._linear(value, 0, 127, 0, 9)
 
 
 """
@@ -1441,7 +1659,7 @@ class Button:
         if state is None:
             self._surface = pygame.Surface((self._area[2], self._area[3]), pygame.SRCALPHA)
             if DEBUG:
-                self._surface.fill((200, 180, 0, 50))
+                self._surface.fill(DEBUG_COLOR)
             return
         for image in self._images_states:
             if image.get_name() == state:
@@ -1590,8 +1808,8 @@ class Slider:
     def _check_boarder(self, position):
         puller_half_height = self._puller.get_size()[1] / 2
         height = self.get_size()[1]
-        if 0 + puller_half_height > position:
-            position = 0 + puller_half_height
+        if puller_half_height > position:
+            position = puller_half_height
         elif height - puller_half_height < position:
             position = height - puller_half_height
         return position - puller_half_height
@@ -1641,7 +1859,7 @@ class Slider:
         position_x, position_y = self.get_position()
         self._surface = pygame.Surface((width, height), pygame.SRCALPHA)
         if DEBUG:
-            self._surface.fill((200, 180, 0, 35))
+            self._surface.fill(DEBUG_COLOR)
 
         puller_half_height = self._puller.get_size()[1] / 2
         if puller_position is None:
@@ -1686,6 +1904,11 @@ class Slider:
 
     def update(self):
         self._state.update(self)
+
+    def raw_to_puller_value(self, value, min=None, max=None):
+        min = min if min is not None else self._range[0]
+        max = max if max is not None else self._range[1]
+        return self._linear(value, min, max, self.get_level_bar_height(), 0)
 
 
 """
